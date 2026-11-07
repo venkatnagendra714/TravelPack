@@ -10,7 +10,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "uk.ac.tees.mad.S3623092"
+        applicationId = "uk.ac.tees.mad.s3623092"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
@@ -37,6 +37,9 @@ android {
 }
 
 dependencies {
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.navigation:navigation-compose:2.10.2")
+
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
