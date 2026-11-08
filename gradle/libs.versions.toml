@@ -8,8 +8,14 @@ lifecycleRuntimeKtx = "2.11.0"
 activityCompose = "1.13.0"
 kotlin = "2.2.10"
 composeBom = "2026.02.01"
+travelpackBiometricVersion = "1.1.0"
+travelpackNavigationVersion = "2.10.2"
+
 
 [libraries]
+travelpackRuntimeSaveable = { module = "androidx.compose.runtime:runtime-saveable" }
+travelpackBiometric = { module = "androidx.biometric:biometric", version.ref = "travelpackBiometricVersion" }
+travelpackNavigationCompose = { module = "androidx.navigation:navigation-compose", version.ref = "travelpackNavigationVersion" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
