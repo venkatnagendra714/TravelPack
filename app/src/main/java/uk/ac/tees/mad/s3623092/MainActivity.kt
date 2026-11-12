@@ -75,24 +75,19 @@ private object Routes {
 data class Trip(
     val id: Long,
     val name: String,
-    val destination: String,
+    val fromLocation: String,
+    val toLocation: String,
     val startDate: String,
     val endDate: String,
     val notes: String
 )
 
 private fun TripEntity.toUiTrip(): Trip {
-    val displayDestination = listOf(
-        fromLocation.trim(),
-        toLocation.trim()
-    )
-        .filter { it.isNotEmpty() }
-        .joinToString(" → ")
-
     return Trip(
         id = id,
         name = name,
-        destination = displayDestination,
+        fromLocation = fromLocation,
+        toLocation = toLocation,
         startDate = startDate,
         endDate = endDate,
         notes = notes
@@ -103,12 +98,20 @@ private fun Trip.toEntity(): TripEntity {
     return TripEntity(
         id = id,
         name = name,
-        fromLocation = "",
-        toLocation = destination,
+        fromLocation = fromLocation,
+        toLocation = toLocation,
         startDate = startDate,
         endDate = endDate,
         notes = notes
     )
+}
+
+private fun Trip.routeText(): String {
+    return if (fromLocation.isBlank()) {
+        toLocation
+    } else {
+        "$fromLocation → $toLocation"
+    }
 }
 
 class MainActivity : FragmentActivity() {
@@ -525,7 +528,7 @@ private fun DashboardOverview(
                                 fontWeight = FontWeight.Bold
                             )
 
-                            Text(trip.destination)
+                            Text(trip.routeText())
                             Text("${trip.startDate} to ${trip.endDate}")
                         }
                     }
@@ -695,7 +698,7 @@ private fun DestinationWeatherContent(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
-                        text = trip.destination,
+                        text = trip.toLocation,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -800,7 +803,7 @@ private fun ManageTripsScreen(
                                 fontWeight = FontWeight.Bold
                             )
 
-                            Text(trip.destination)
+                            Text(trip.routeText())
 
                             Spacer(modifier = Modifier.height(12.dp))
 
@@ -871,8 +874,12 @@ private fun TripForm(
         mutableStateOf(initialTrip?.name.orEmpty())
     }
 
-    var destination by rememberSaveable(formKey) {
-        mutableStateOf(initialTrip?.destination.orEmpty())
+    var fromLocation by rememberSaveable(formKey) {
+        mutableStateOf(initialTrip?.fromLocation.orEmpty())
+    }
+
+    var toLocation by rememberSaveable(formKey) {
+        mutableStateOf(initialTrip?.toLocation.orEmpty())
     }
 
     var startDate by rememberSaveable(formKey) {
@@ -917,12 +924,23 @@ private fun TripForm(
         )
 
         OutlinedTextField(
-            value = destination,
+            value = fromLocation,
             onValueChange = {
-                destination = it
+                fromLocation = it
             },
             label = {
-                Text("Destination")
+                Text("From location")
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = toLocation,
+            onValueChange = {
+                toLocation = it
+            },
+            label = {
+                Text("To location")
             },
             modifier = Modifier.fillMaxWidth()
         )
@@ -982,7 +1000,8 @@ private fun TripForm(
                 onClick = {
                     if (
                         tripName.isBlank() ||
-                        destination.isBlank() ||
+                        fromLocation.isBlank() ||
+                        toLocation.isBlank() ||
                         startDate.isBlank() ||
                         endDate.isBlank()
                     ) {
@@ -992,7 +1011,8 @@ private fun TripForm(
                             Trip(
                                 id = initialTrip?.id ?: 0L,
                                 name = tripName.trim(),
-                                destination = destination.trim(),
+                                fromLocation = fromLocation.trim(),
+                                toLocation = toLocation.trim(),
                                 startDate = startDate.trim(),
                                 endDate = endDate.trim(),
                                 notes = notes.trim()
