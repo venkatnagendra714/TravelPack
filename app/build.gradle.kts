@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -45,6 +46,13 @@ android {
 }
 
 dependencies {
+// Room local database
+    implementation("androidx.room:room-runtime:2.8.5")
+    implementation("androidx.room:room-ktx:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
+
+// Room testing
+    testImplementation("androidx.room:room-testing:2.8.5")
     implementation(libs.travelpackBiometric)
     implementation(libs.travelpackNavigationCompose)
     implementation(libs.travelpackRuntimeSaveable)
@@ -59,6 +67,8 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    // ViewModel and coroutine scope
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0")
 
     testImplementation(libs.junit)
 

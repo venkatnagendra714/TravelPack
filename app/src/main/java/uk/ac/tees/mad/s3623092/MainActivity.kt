@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
@@ -42,14 +43,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -61,7 +61,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.seconds
+import uk.ac.tees.mad.s3623092.data.TripEntity
 import uk.ac.tees.mad.s3623092.ui.theme.TravelPackTheme
+import uk.ac.tees.mad.s3623092.viewmodel.TripViewModel
 
 private object Routes {
     const val SPLASH = "splash"
@@ -79,7 +81,39 @@ data class Trip(
     val notes: String
 )
 
+private fun TripEntity.toUiTrip(): Trip {
+    val displayDestination = listOf(
+        fromLocation.trim(),
+        toLocation.trim()
+    )
+        .filter { it.isNotEmpty() }
+        .joinToString(" → ")
+
+    return Trip(
+        id = id,
+        name = name,
+        destination = displayDestination,
+        startDate = startDate,
+        endDate = endDate,
+        notes = notes
+    )
+}
+
+private fun Trip.toEntity(): TripEntity {
+    return TripEntity(
+        id = id,
+        name = name,
+        fromLocation = "",
+        toLocation = destination,
+        startDate = startDate,
+        endDate = endDate,
+        notes = notes
+    )
+}
+
 class MainActivity : FragmentActivity() {
+
+    private val tripViewModel: TripViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,6 +123,7 @@ class MainActivity : FragmentActivity() {
         setContent {
             TravelPackTheme {
                 TravelPackNavigation(
+                    tripViewModel = tripViewModel,
                     authenticate = { onSuccess, onError ->
                         showBiometricPrompt(onSuccess, onError)
                     }
@@ -159,13 +194,18 @@ class MainActivity : FragmentActivity() {
 
 @Composable
 private fun TravelPackNavigation(
+    tripViewModel: TripViewModel,
     authenticate: (
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) -> Unit
 ) {
     val navController = rememberNavController()
-    val trips = remember { mutableStateListOf<Trip>() }
+
+    val savedTrips by tripViewModel.trips.collectAsState()
+    val trips = savedTrips.map { entity ->
+        entity.toUiTrip()
+    }
 
     NavHost(
         navController = navController,
@@ -202,7 +242,7 @@ private fun TravelPackNavigation(
                     navController.popBackStack()
                 },
                 onSaveTrip = { trip ->
-                    trips.add(trip)
+                    tripViewModel.saveTrip(trip.toEntity())
                     navController.popBackStack()
                 }
             )
@@ -215,16 +255,10 @@ private fun TravelPackNavigation(
                     navController.popBackStack()
                 },
                 onUpdateTrip = { updatedTrip ->
-                    val index = trips.indexOfFirst {
-                        it.id == updatedTrip.id
-                    }
-
-                    if (index >= 0) {
-                        trips[index] = updatedTrip
-                    }
+                    tripViewModel.updateTrip(updatedTrip.toEntity())
                 },
                 onDeleteTrip = { trip ->
-                    trips.remove(trip)
+                    tripViewModel.deleteTrip(trip.toEntity())
                 }
             )
         }
@@ -956,8 +990,7 @@ private fun TripForm(
                     } else {
                         onSave(
                             Trip(
-                                id = initialTrip?.id
-                                    ?: System.currentTimeMillis(),
+                                id = initialTrip?.id ?: 0L,
                                 name = tripName.trim(),
                                 destination = destination.trim(),
                                 startDate = startDate.trim(),
