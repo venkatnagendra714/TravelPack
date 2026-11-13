@@ -4,7 +4,8 @@ import kotlinx.coroutines.flow.Flow
 
 class TripRepository(
     private val tripDao: TripDao,
-    private val tripAttachmentDao: TripAttachmentDao
+    private val tripAttachmentDao: TripAttachmentDao,
+    private val checklistItemDao: ChecklistItemDao
 ) {
     val allTrips: Flow<List<TripEntity>> =
         tripDao.getAllTrips()
@@ -37,5 +38,29 @@ class TripRepository(
         if (attachments.isNotEmpty()) {
             tripAttachmentDao.insertAttachments(attachments)
         }
+    }
+
+    fun getChecklistForTrip(
+        tripId: Long
+    ): Flow<List<ChecklistItemEntity>> {
+        return checklistItemDao.getChecklistForTrip(tripId)
+    }
+
+    suspend fun insertChecklistItem(
+        item: ChecklistItemEntity
+    ): Long {
+        return checklistItemDao.insertChecklistItem(item)
+    }
+
+    suspend fun updateChecklistItem(
+        item: ChecklistItemEntity
+    ) {
+        checklistItemDao.updateChecklistItem(item)
+    }
+
+    suspend fun deleteChecklistItem(
+        item: ChecklistItemEntity
+    ) {
+        checklistItemDao.deleteChecklistItem(item)
     }
 }

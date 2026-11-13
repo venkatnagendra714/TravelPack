@@ -100,6 +100,7 @@ import java.util.concurrent.Executors
 import kotlin.time.Duration.Companion.seconds
 
 import uk.ac.tees.mad.s3623092.data.TripEntity
+import uk.ac.tees.mad.s3623092.data.ChecklistItemEntity
 import uk.ac.tees.mad.s3623092.data.TripAttachmentEntity
 import uk.ac.tees.mad.s3623092.ui.theme.TravelPackTheme
 import uk.ac.tees.mad.s3623092.viewmodel.TripViewModel
@@ -126,6 +127,10 @@ data class TripAttachmentDraft(
     val uri: String,
     val fileName: String,
     val mimeType: String
+)
+
+data class ChecklistItemDraft(
+    val title: String
 )
 
 private fun TripEntity.toUiTrip(): Trip {
@@ -163,12 +168,20 @@ private fun TripAttachmentDraft.toEntity(tripId: Long): TripAttachmentEntity {
     )
 }
 
+private fun ChecklistItemDraft.toEntity(
+    tripId: Long
+): ChecklistItemEntity {
+    return ChecklistItemEntity(
+        tripId = tripId,
+        title = title
+    )
+}
+
 private fun getAttachmentFileName(
     context: Context,
     uri: Uri
 ): String {
     val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
-
     return context.contentResolver.query(
         uri,
         projection,
@@ -186,6 +199,7 @@ private fun getAttachmentFileName(
     }?.takeIf { it.isNotBlank() }
         ?: uri.lastPathSegment
         ?: "Travel attachment"
+
 }
 
 private fun keepAttachmentPermission(
@@ -198,7 +212,7 @@ private fun keepAttachmentPermission(
             Intent.FLAG_GRANT_READ_URI_PERMISSION
         )
     } catch (_: SecurityException) {
-        // Some document providers do not offer persistable permissions.
+// Some document providers do not offer persistable permissions.
     }
 }
 
@@ -218,7 +232,6 @@ private fun createTripPhotoUri(context: Context): Uri? {
         ).apply {
             mkdirs()
         }
-
         val photoFile = File.createTempFile(
             "trip_photo_",
             ".jpg",
@@ -233,6 +246,7 @@ private fun createTripPhotoUri(context: Context): Uri? {
     } catch (_: Exception) {
         null
     }
+
 }
 
 private fun getCurrentDeviceLocation(
@@ -245,7 +259,6 @@ private fun getCurrentDeviceLocation(
             context,
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
-
     val coarseLocationGranted =
         ContextCompat.checkSelfPermission(
             context,
@@ -290,6 +303,7 @@ private fun getCurrentDeviceLocation(
     } catch (_: SecurityException) {
         onFailure()
     }
+
 }
 
 @Suppress("DEPRECATION")
@@ -304,7 +318,6 @@ private fun reverseGeocodeLocation(
         onFailure()
         return
     }
-
     val executor = Executors.newSingleThreadExecutor()
 
     executor.execute {
@@ -344,9 +357,10 @@ private fun reverseGeocodeLocation(
             }
         }
     }
-}
-class MainActivity : FragmentActivity() {
 
+}
+
+class MainActivity : FragmentActivity() {
     private val tripViewModel: TripViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -457,6 +471,7 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
 }
 
 @Composable
@@ -468,7 +483,6 @@ private fun TravelPackNavigation(
     ) -> Unit
 ) {
     val navController = rememberNavController()
-
     val savedTrips by tripViewModel.trips.collectAsState()
 
     val trips = savedTrips.map { entity ->
@@ -510,10 +524,13 @@ private fun TravelPackNavigation(
                 onBack = {
                     navController.popBackStack()
                 },
-                onSaveTrip = { trip, attachments ->
-                    tripViewModel.saveTripWithAttachments(
+                onSaveTrip = { trip, attachments, checklistItems ->
+                    tripViewModel.saveTripWithAttachmentsAndChecklist(
                         trip = trip.toEntity(),
                         attachments = attachments.map { draft ->
+                            draft.toEntity(tripId = 0L)
+                        },
+                        checklistItems = checklistItems.map { draft ->
                             draft.toEntity(tripId = 0L)
                         }
                     )
@@ -537,6 +554,7 @@ private fun TravelPackNavigation(
             )
         }
     }
+
 }
 
 @Composable
@@ -550,7 +568,6 @@ private fun SplashAndAuthenticationScreen(
     var showSplash by rememberSaveable {
         mutableStateOf(true)
     }
-
     var errorMessage by rememberSaveable {
         mutableStateOf("")
     }
@@ -578,6 +595,7 @@ private fun SplashAndAuthenticationScreen(
             }
         )
     }
+
 }
 
 @Composable
@@ -597,7 +615,6 @@ private fun SplashContent() {
                 color = MaterialTheme.colorScheme.onPrimary,
                 fontWeight = FontWeight.Bold
             )
-
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
@@ -606,6 +623,7 @@ private fun SplashContent() {
             )
         }
     }
+
 }
 
 @Composable
@@ -627,7 +645,6 @@ private fun AuthenticationContent(
                 text = "🔒",
                 style = MaterialTheme.typography.displayMedium
             )
-
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
@@ -659,6 +676,7 @@ private fun AuthenticationContent(
             }
         }
     }
+
 }
 
 @Composable
@@ -671,7 +689,6 @@ private fun TripDashboardScreen(
     var selectedTab by rememberSaveable {
         mutableIntStateOf(0)
     }
-
     val tabs = listOf(
         "Overview",
         "Checklist",
@@ -721,7 +738,10 @@ private fun TripDashboardScreen(
                     onAddTrip = onAddTrip
                 )
 
-                1 -> TravelChecklistContent()
+                1 -> TravelChecklistContent(
+                    trips = trips,
+                    tripViewModel = tripViewModel
+                )
 
                 2 -> DocumentsContent(
                     trips = trips,
@@ -734,6 +754,7 @@ private fun TripDashboardScreen(
             }
         }
     }
+
 }
 
 @Composable
@@ -752,7 +773,6 @@ private fun DashboardOverview(
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
-
         Spacer(modifier = Modifier.height(8.dp))
 
         if (trips.isEmpty()) {
@@ -830,6 +850,7 @@ private fun DashboardOverview(
             }
         }
     }
+
 }
 
 @Composable
@@ -840,7 +861,6 @@ private fun TripPhotoPreview(
     if (photoUri.isNullOrBlank()) {
         return
     }
-
     val context = LocalContext.current
 
     val bitmap by produceState<Bitmap?>(
@@ -866,21 +886,34 @@ private fun TripPhotoPreview(
             contentScale = ContentScale.Crop
         )
     }
+
 }
 
 @Composable
-private fun TravelChecklistContent() {
-    var passportChecked by rememberSaveable {
-        mutableStateOf(false)
+private fun TravelChecklistContent(
+    trips: List<Trip>,
+    tripViewModel: TripViewModel
+) {
+    var selectedTripId by rememberSaveable {
+        mutableStateOf(trips.firstOrNull()?.id ?: 0L)
+    }
+    var newItemText by rememberSaveable {
+        mutableStateOf("")
     }
 
-    var ticketsChecked by rememberSaveable {
-        mutableStateOf(false)
+    var editingItem by remember {
+        mutableStateOf<ChecklistItemEntity?>(null)
     }
 
-    var accommodationChecked by rememberSaveable {
-        mutableStateOf(false)
+    LaunchedEffect(trips) {
+        if (trips.none { it.id == selectedTripId }) {
+            selectedTripId = trips.firstOrNull()?.id ?: 0L
+        }
     }
+
+    val checklistItems by tripViewModel
+        .checklistForTrip(selectedTripId)
+        .collectAsState(initial = emptyList())
 
     Column(
         modifier = Modifier
@@ -893,55 +926,176 @@ private fun TravelChecklistContent() {
             fontWeight = FontWeight.Bold
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        ChecklistItem(
-            label = "Passport and travel documents",
-            checked = passportChecked,
-            onCheckedChange = {
-                passportChecked = it
+        if (trips.isEmpty()) {
+            Text("Create a trip first to add checklist items.")
+        } else {
+            Text(
+                text = "Select a trip",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(trips, key = { it.id }) { trip ->
+                    if (trip.id == selectedTripId) {
+                        Button(
+                            onClick = {
+                                selectedTripId = trip.id
+                            }
+                        ) {
+                            Text(trip.name)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = {
+                                selectedTripId = trip.id
+                            }
+                        ) {
+                            Text(trip.name)
+                        }
+                    }
+                }
             }
-        )
 
-        ChecklistItem(
-            label = "Tickets and transport",
-            checked = ticketsChecked,
-            onCheckedChange = {
-                ticketsChecked = it
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = newItemText,
+                    onValueChange = { newItemText = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    label = {
+                        Text("New checklist item")
+                    }
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Button(
+                    onClick = {
+                        tripViewModel.addChecklistItem(
+                            tripId = selectedTripId,
+                            title = newItemText
+                        )
+                        newItemText = ""
+                    },
+                    enabled = newItemText.isNotBlank()
+                ) {
+                    Text("Add")
+                }
             }
-        )
 
-        ChecklistItem(
-            label = "Accommodation confirmed",
-            checked = accommodationChecked,
-            onCheckedChange = {
-                accommodationChecked = it
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (checklistItems.isEmpty()) {
+                Text("No checklist items yet.")
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(
+                        items = checklistItems,
+                        key = { item -> item.id }
+                    ) { item ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = item.isCompleted,
+                                onCheckedChange = { checked ->
+                                    tripViewModel.updateChecklistItem(
+                                        item.copy(isCompleted = checked)
+                                    )
+                                }
+                            )
+
+                            TextButton(
+                                onClick = {
+                                    editingItem = item
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = item.title,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    tripViewModel.deleteChecklistItem(item)
+                                }
+                            ) {
+                                Text("Delete")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    editingItem?.let { item ->
+        var editedTitle by remember(item.id) {
+            mutableStateOf(item.title)
+        }
+
+        AlertDialog(
+            onDismissRequest = {
+                editingItem = null
+            },
+            title = {
+                Text("Edit checklist item")
+            },
+            text = {
+                OutlinedTextField(
+                    value = editedTitle,
+                    onValueChange = { editedTitle = it },
+                    singleLine = true,
+                    label = {
+                        Text("Item")
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val cleanTitle = editedTitle.trim()
+
+                        if (cleanTitle.isNotBlank()) {
+                            tripViewModel.updateChecklistItem(
+                                item.copy(title = cleanTitle)
+                            )
+                            editingItem = null
+                        }
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        editingItem = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
             }
         )
     }
-}
 
-@Composable
-private fun ChecklistItem(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = onCheckedChange
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Text(label)
-    }
 }
 
 @Composable
@@ -952,7 +1106,6 @@ private fun DocumentsContent(
     var selectedTripId by rememberSaveable {
         mutableStateOf(trips.firstOrNull()?.id ?: 0L)
     }
-
     LaunchedEffect(trips) {
         if (trips.none { it.id == selectedTripId }) {
             selectedTripId = trips.firstOrNull()?.id ?: 0L
@@ -1088,6 +1241,7 @@ private fun DocumentsContent(
             }
         }
     }
+
 }
 
 @Composable
@@ -1104,7 +1258,6 @@ private fun DestinationWeatherContent(
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
-
         Spacer(modifier = Modifier.height(16.dp))
 
         if (trip == null) {
@@ -1131,12 +1284,17 @@ private fun DestinationWeatherContent(
             }
         }
     }
+
 }
 
 @Composable
 private fun AddNewTripScreen(
     onBack: () -> Unit,
-    onSaveTrip: (Trip, List<TripAttachmentDraft>) -> Unit
+    onSaveTrip: (
+        Trip,
+        List<TripAttachmentDraft>,
+        List<ChecklistItemDraft>
+    ) -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -1174,7 +1332,6 @@ private fun ManageTripsScreen(
     var editingTrip by remember {
         mutableStateOf<Trip?>(null)
     }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -1270,7 +1427,7 @@ private fun ManageTripsScreen(
                     onCancel = {
                         editingTrip = null
                     },
-                    onSave = { updatedTrip, _ ->
+                    onSave = { updatedTrip, _, _ ->
                         onUpdateTrip(updatedTrip)
                         editingTrip = null
                     }
@@ -1279,6 +1436,7 @@ private fun ManageTripsScreen(
             confirmButton = {}
         )
     }
+
 }
 
 @Composable
@@ -1287,10 +1445,13 @@ private fun TripForm(
     title: String,
     initialTrip: Trip?,
     onCancel: () -> Unit,
-    onSave: (Trip, List<TripAttachmentDraft>) -> Unit
+    onSave: (
+        Trip,
+        List<TripAttachmentDraft>,
+        List<ChecklistItemDraft>
+    ) -> Unit
 ) {
     val context = LocalContext.current
-
     val placesClient: PlacesClient = remember(context) {
         Places.createClient(context)
     }
@@ -1331,6 +1492,14 @@ private fun TripForm(
 
     var selectedAttachments by remember {
         mutableStateOf<List<TripAttachmentDraft>>(emptyList())
+    }
+
+    var checklistItems by remember {
+        mutableStateOf<List<ChecklistItemDraft>>(emptyList())
+    }
+
+    var newChecklistItem by remember {
+        mutableStateOf("")
     }
 
     var errorMessage by rememberSaveable(formKey) {
@@ -1597,6 +1766,69 @@ private fun TripForm(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "Travel checklist",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = newChecklistItem,
+                    onValueChange = {
+                        newChecklistItem = it
+                    },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    label = {
+                        Text("Add checklist item")
+                    }
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Button(
+                    onClick = {
+                        val cleanItem = newChecklistItem.trim()
+
+                        if (cleanItem.isNotBlank()) {
+                            checklistItems = checklistItems +
+                                    ChecklistItemDraft(cleanItem)
+                            newChecklistItem = ""
+                        }
+                    },
+                    enabled = newChecklistItem.isNotBlank()
+                ) {
+                    Text("Add")
+                }
+            }
+
+            checklistItems.forEachIndexed { index, item ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "• ${item.title}",
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    TextButton(
+                        onClick = {
+                            checklistItems = checklistItems.toMutableList()
+                                .also { items -> items.removeAt(index) }
+                        }
+                    ) {
+                        Text("Remove")
+                    }
+                }
+            }
         }
 
         OutlinedTextField(
@@ -1675,7 +1907,8 @@ private fun TripForm(
                                 notes = notes.trim(),
                                 photoUri = photoUri.ifBlank { null }
                             ),
-                            selectedAttachments
+                            selectedAttachments,
+                            checklistItems
                         )
                     }
                 }
@@ -1684,4 +1917,5 @@ private fun TripForm(
             }
         }
     }
+
 }
