@@ -2,15 +2,20 @@
 
 package uk.ac.tees.mad.s3623092
 
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +31,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,6 +47,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,17 +57,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+
+import com.google.android.libraries.places.api.Places
+import com.google.android.libraries.places.api.net.PlacesClient
+
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.seconds
+
 import uk.ac.tees.mad.s3623092.data.TripEntity
 import uk.ac.tees.mad.s3623092.ui.theme.TravelPackTheme
 import uk.ac.tees.mad.s3623092.viewmodel.TripViewModel
@@ -121,6 +137,8 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        initialisePlacesSdk()
+
         enableEdgeToEdge()
 
         setContent {
@@ -132,6 +150,29 @@ class MainActivity : FragmentActivity() {
                     }
                 )
             }
+        }
+    }
+
+    private fun initialisePlacesSdk() {
+        val applicationInfo = packageManager.getApplicationInfo(
+            packageName,
+            PackageManager.GET_META_DATA
+        )
+
+        val placesApiKey = applicationInfo.metaData
+            ?.getString("com.google.android.geo.API_KEY")
+            .orEmpty()
+
+        if (placesApiKey.isNotBlank() && !Places.isInitialized()) {
+            Places.initializeWithNewPlacesApiEnabled(
+                applicationContext,
+                placesApiKey
+            )
+        } else if (placesApiKey.isBlank()) {
+            Log.e(
+                "TravelPack",
+                "Google Places API key is missing"
+            )
         }
     }
 
@@ -153,7 +194,9 @@ class MainActivity : FragmentActivity() {
             BiometricManager.BIOMETRIC_SUCCESS -> {
                 val promptInfo = BiometricPrompt.PromptInfo.Builder()
                     .setTitle("Unlock TravelPack")
-                    .setSubtitle("Use fingerprint, face or your device PIN")
+                    .setSubtitle(
+                        "Use fingerprint, face or your device PIN"
+                    )
                     .setAllowedAuthenticators(authenticators)
                     .build()
 
@@ -176,7 +219,9 @@ class MainActivity : FragmentActivity() {
                         }
 
                         override fun onAuthenticationFailed() {
-                            onError("Authentication failed. Please try again.")
+                            onError(
+                                "Authentication failed. Please try again."
+                            )
                         }
                     }
                 )
@@ -185,11 +230,15 @@ class MainActivity : FragmentActivity() {
             }
 
             BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
-                onError("Set a device PIN or enrol a fingerprint.")
+                onError(
+                    "Set a device PIN or enrol a fingerprint."
+                )
             }
 
             else -> {
-                onError("Authentication is not available on this device.")
+                onError(
+                    "Authentication is not available on this device."
+                )
             }
         }
     }
@@ -206,6 +255,7 @@ private fun TravelPackNavigation(
     val navController = rememberNavController()
 
     val savedTrips by tripViewModel.trips.collectAsState()
+
     val trips = savedTrips.map { entity ->
         entity.toUiTrip()
     }
@@ -529,7 +579,10 @@ private fun DashboardOverview(
                             )
 
                             Text(trip.routeText())
-                            Text("${trip.startDate} to ${trip.endDate}")
+
+                            Text(
+                                "${trip.startDate} to ${trip.endDate}"
+                            )
                         }
                     }
                 }
@@ -705,7 +758,9 @@ private fun DestinationWeatherContent(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text("Weather information for this destination.")
+                    Text(
+                        "Weather information for this destination."
+                    )
                 }
             }
         }
@@ -868,6 +923,12 @@ private fun TripForm(
     onCancel: () -> Unit,
     onSave: (Trip) -> Unit
 ) {
+    val context = LocalContext.current
+
+    val placesClient: PlacesClient = remember(context) {
+        Places.createClient(context)
+    }
+
     val formKey = initialTrip?.id ?: 0L
 
     var tripName by rememberSaveable(formKey) {
@@ -920,29 +981,26 @@ private fun TripForm(
             label = {
                 Text("Trip name")
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
 
-        OutlinedTextField(
+        LocationAutocompleteField(
+            label = "From location",
             value = fromLocation,
+            placesClient = placesClient,
             onValueChange = {
                 fromLocation = it
-            },
-            label = {
-                Text("From location")
-            },
-            modifier = Modifier.fillMaxWidth()
+            }
         )
 
-        OutlinedTextField(
+        LocationAutocompleteField(
+            label = "To location",
             value = toLocation,
+            placesClient = placesClient,
             onValueChange = {
                 toLocation = it
-            },
-            label = {
-                Text("To location")
-            },
-            modifier = Modifier.fillMaxWidth()
+            }
         )
 
         OutlinedTextField(
@@ -953,7 +1011,8 @@ private fun TripForm(
             label = {
                 Text("Start date")
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
 
         OutlinedTextField(
@@ -964,7 +1023,8 @@ private fun TripForm(
             label = {
                 Text("End date")
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
 
         OutlinedTextField(
@@ -1005,7 +1065,8 @@ private fun TripForm(
                         startDate.isBlank() ||
                         endDate.isBlank()
                     ) {
-                        errorMessage = "Please complete all required fields."
+                        errorMessage =
+                            "Please complete all required fields."
                     } else {
                         onSave(
                             Trip(
