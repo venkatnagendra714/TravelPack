@@ -5,7 +5,10 @@ package uk.ac.tees.mad.s3623092
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.location.Geocoder
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -34,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 
@@ -59,17 +63,21 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.ContentScale
 
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
 
 import androidx.navigation.compose.NavHost
@@ -83,6 +91,7 @@ import com.google.android.libraries.places.api.Places
 import com.google.android.libraries.places.api.net.PlacesClient
 
 import kotlinx.coroutines.delay
+import java.io.File
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.time.Duration.Companion.seconds
@@ -105,7 +114,8 @@ data class Trip(
     val toLocation: String,
     val startDate: String,
     val endDate: String,
-    val notes: String
+    val notes: String,
+    val photoUri: String? = null
 )
 
 private fun TripEntity.toUiTrip(): Trip {
@@ -116,7 +126,8 @@ private fun TripEntity.toUiTrip(): Trip {
         toLocation = toLocation,
         startDate = startDate,
         endDate = endDate,
-        notes = notes
+        notes = notes,
+        photoUri = photoUri
     )
 }
 
@@ -128,7 +139,8 @@ private fun Trip.toEntity(): TripEntity {
         toLocation = toLocation,
         startDate = startDate,
         endDate = endDate,
-        notes = notes
+        notes = notes,
+        photoUri = photoUri
     )
 }
 
@@ -137,6 +149,31 @@ private fun Trip.routeText(): String {
         toLocation
     } else {
         "$fromLocation → $toLocation"
+    }
+}
+
+private fun createTripPhotoUri(context: Context): Uri? {
+    return try {
+        val photoDirectory = File(
+            context.filesDir,
+            "trip_photos"
+        ).apply {
+            mkdirs()
+        }
+
+        val photoFile = File.createTempFile(
+            "trip_photo_",
+            ".jpg",
+            photoDirectory
+        )
+
+        FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            photoFile
+        )
+    } catch (_: Exception) {
+        null
     }
 }
 
@@ -692,6 +729,13 @@ private fun DashboardOverview(
                         Column(
                             modifier = Modifier.padding(16.dp)
                         ) {
+                            TripPhotoPreview(
+                                photoUri = trip.photoUri,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 180.dp)
+                            )
+
                             Text(
                                 text = trip.name,
                                 style = MaterialTheme.typography.titleLarge,
@@ -717,6 +761,42 @@ private fun DashboardOverview(
                 Text("Add Another Trip")
             }
         }
+    }
+}
+
+@Composable
+private fun TripPhotoPreview(
+    photoUri: String?,
+    modifier: Modifier = Modifier
+) {
+    if (photoUri.isNullOrBlank()) {
+        return
+    }
+
+    val context = LocalContext.current
+
+    val bitmap by produceState<Bitmap?>(
+        initialValue = null,
+        key1 = photoUri
+    ) {
+        value = try {
+            context.contentResolver
+                .openInputStream(Uri.parse(photoUri))
+                ?.use { inputStream ->
+                    BitmapFactory.decodeStream(inputStream)
+                }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    bitmap?.let { image ->
+        Image(
+            bitmap = image.asImageBitmap(),
+            contentDescription = "Saved travel photo",
+            modifier = modifier,
+            contentScale = ContentScale.Crop
+        )
     }
 }
 
@@ -1075,6 +1155,14 @@ private fun TripForm(
         mutableStateOf(initialTrip?.notes.orEmpty())
     }
 
+    var photoUri by rememberSaveable(formKey) {
+        mutableStateOf(initialTrip?.photoUri.orEmpty())
+    }
+
+    var pendingPhotoUri by remember {
+        mutableStateOf<Uri?>(null)
+    }
+
     var errorMessage by rememberSaveable(formKey) {
         mutableStateOf("")
     }
@@ -1082,6 +1170,46 @@ private fun TripForm(
     var locationError by rememberSaveable(formKey) {
         mutableStateOf("")
     }
+
+    var photoError by rememberSaveable(formKey) {
+        mutableStateOf("")
+    }
+
+    val cameraLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.TakePicture()
+        ) { savedSuccessfully ->
+            if (savedSuccessfully) {
+                photoUri = pendingPhotoUri?.toString().orEmpty()
+                photoError = ""
+            } else {
+                photoError = "The photo was not saved."
+            }
+
+            pendingPhotoUri = null
+        }
+
+    val launchCamera: () -> Unit = {
+        val newPhotoUri = createTripPhotoUri(context)
+
+        if (newPhotoUri == null) {
+            photoError = "Unable to create private photo storage."
+        } else {
+            pendingPhotoUri = newPhotoUri
+            cameraLauncher.launch(newPhotoUri)
+        }
+    }
+
+    val cameraPermissionLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
+                launchCamera()
+            } else {
+                photoError = "Camera permission was denied."
+            }
+        }
 
     val locationPermissionLauncher =
         rememberLauncherForActivityResult(
@@ -1200,6 +1328,41 @@ private fun TripForm(
             }
         )
 
+        OutlinedButton(
+            onClick = {
+                val cameraPermissionGranted =
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+
+                if (cameraPermissionGranted) {
+                    launchCamera()
+                } else {
+                    cameraPermissionLauncher.launch(
+                        Manifest.permission.CAMERA
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Capture travel photo")
+        }
+
+        TripPhotoPreview(
+            photoUri = photoUri,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 220.dp)
+        )
+
+        if (photoError.isNotBlank()) {
+            Text(
+                text = photoError,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
         OutlinedTextField(
             value = startDate,
             onValueChange = {
@@ -1273,7 +1436,8 @@ private fun TripForm(
                                 toLocation = toLocation.trim(),
                                 startDate = startDate.trim(),
                                 endDate = endDate.trim(),
-                                notes = notes.trim()
+                                notes = notes.trim(),
+                                photoUri = photoUri.ifBlank { null }
                             )
                         )
                     }

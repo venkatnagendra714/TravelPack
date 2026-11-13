@@ -1,20 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Internet access for Google Maps and location suggestions -->
+    <!-- Internet access for Google Places and map services -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Biometric authentication -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
-    <!-- Allows installation on devices without fingerprint hardware -->
+    <!-- Location access -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Camera access -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Allow installation on devices without fingerprint hardware -->
     <uses-feature
         android:name="android.hardware.fingerprint"
         android:required="false" />
 
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Camera is optional because some devices may not have one -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -24,7 +32,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.TravelPack">
 
-        <!-- Google Maps API key loaded from local.properties -->
+        <!-- Google Maps and Places API key -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_API_KEY}" />
@@ -39,6 +47,18 @@
             </intent-filter>
 
         </activity>
+
+        <!-- Secure provider for saving camera photos -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 
