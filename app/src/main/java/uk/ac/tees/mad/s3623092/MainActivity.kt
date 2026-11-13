@@ -4,6 +4,7 @@ package uk.ac.tees.mad.s3623092
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -13,6 +14,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import android.util.Log
 
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
@@ -97,6 +100,7 @@ import java.util.concurrent.Executors
 import kotlin.time.Duration.Companion.seconds
 
 import uk.ac.tees.mad.s3623092.data.TripEntity
+import uk.ac.tees.mad.s3623092.data.TripAttachmentEntity
 import uk.ac.tees.mad.s3623092.ui.theme.TravelPackTheme
 import uk.ac.tees.mad.s3623092.viewmodel.TripViewModel
 
@@ -116,6 +120,12 @@ data class Trip(
     val endDate: String,
     val notes: String,
     val photoUri: String? = null
+)
+
+data class TripAttachmentDraft(
+    val uri: String,
+    val fileName: String,
+    val mimeType: String
 )
 
 private fun TripEntity.toUiTrip(): Trip {
@@ -142,6 +152,54 @@ private fun Trip.toEntity(): TripEntity {
         notes = notes,
         photoUri = photoUri
     )
+}
+
+private fun TripAttachmentDraft.toEntity(tripId: Long): TripAttachmentEntity {
+    return TripAttachmentEntity(
+        tripId = tripId,
+        uri = uri,
+        fileName = fileName,
+        mimeType = mimeType
+    )
+}
+
+private fun getAttachmentFileName(
+    context: Context,
+    uri: Uri
+): String {
+    val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
+
+    return context.contentResolver.query(
+        uri,
+        projection,
+        null,
+        null,
+        null
+    )?.use { cursor ->
+        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+
+        if (nameIndex >= 0 && cursor.moveToFirst()) {
+            cursor.getString(nameIndex)
+        } else {
+            null
+        }
+    }?.takeIf { it.isNotBlank() }
+        ?: uri.lastPathSegment
+        ?: "Travel attachment"
+}
+
+private fun keepAttachmentPermission(
+    context: Context,
+    uri: Uri
+) {
+    try {
+        context.contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+    } catch (_: SecurityException) {
+        // Some document providers do not offer persistable permissions.
+    }
 }
 
 private fun Trip.routeText(): String {
@@ -437,6 +495,7 @@ private fun TravelPackNavigation(
         composable(Routes.DASHBOARD) {
             TripDashboardScreen(
                 trips = trips,
+                tripViewModel = tripViewModel,
                 onAddTrip = {
                     navController.navigate(Routes.ADD_TRIP)
                 },
@@ -451,8 +510,13 @@ private fun TravelPackNavigation(
                 onBack = {
                     navController.popBackStack()
                 },
-                onSaveTrip = { trip ->
-                    tripViewModel.saveTrip(trip.toEntity())
+                onSaveTrip = { trip, attachments ->
+                    tripViewModel.saveTripWithAttachments(
+                        trip = trip.toEntity(),
+                        attachments = attachments.map { draft ->
+                            draft.toEntity(tripId = 0L)
+                        }
+                    )
                     navController.popBackStack()
                 }
             )
@@ -600,6 +664,7 @@ private fun AuthenticationContent(
 @Composable
 private fun TripDashboardScreen(
     trips: List<Trip>,
+    tripViewModel: TripViewModel,
     onAddTrip: () -> Unit,
     onManageTrips: () -> Unit
 ) {
@@ -658,7 +723,10 @@ private fun TripDashboardScreen(
 
                 1 -> TravelChecklistContent()
 
-                2 -> DocumentsContent()
+                2 -> DocumentsContent(
+                    trips = trips,
+                    tripViewModel = tripViewModel
+                )
 
                 3 -> DestinationWeatherContent(
                     trip = trips.firstOrNull()
@@ -877,15 +945,55 @@ private fun ChecklistItem(
 }
 
 @Composable
-private fun DocumentsContent() {
-    var selectedDocument by rememberSaveable {
-        mutableStateOf("")
+private fun DocumentsContent(
+    trips: List<Trip>,
+    tripViewModel: TripViewModel
+) {
+    var selectedTripId by rememberSaveable {
+        mutableStateOf(trips.firstOrNull()?.id ?: 0L)
     }
 
+    LaunchedEffect(trips) {
+        if (trips.none { it.id == selectedTripId }) {
+            selectedTripId = trips.firstOrNull()?.id ?: 0L
+        }
+    }
+
+    val selectedTrip = trips.firstOrNull { it.id == selectedTripId }
+
+    val context = LocalContext.current
+
+    val attachments by tripViewModel
+        .attachmentsForTrip(selectedTripId)
+        .collectAsState(initial = emptyList())
+
     val documentPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        selectedDocument = uri?.toString().orEmpty()
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (selectedTrip != null) {
+            val drafts = uris.map { uri ->
+                keepAttachmentPermission(
+                    context = context,
+                    uri = uri
+                )
+
+                TripAttachmentDraft(
+                    uri = uri.toString(),
+                    fileName = getAttachmentFileName(
+                        context = context,
+                        uri = uri
+                    ),
+                    mimeType = context.contentResolver
+                        .getType(uri)
+                        .orEmpty()
+                )
+            }
+
+            tripViewModel.addAttachments(
+                tripId = selectedTrip.id,
+                attachments = drafts.map { it.toEntity(selectedTrip.id) }
+            )
+        }
     }
 
     Column(
@@ -899,27 +1007,85 @@ private fun DocumentsContent() {
             fontWeight = FontWeight.Bold
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        Text(
-            text = if (selectedDocument.isBlank()) {
-                "No travel documents added."
-            } else {
-                "Selected document:\n$selectedDocument"
+        if (trips.isEmpty()) {
+            Text("Add a trip before attaching documents.")
+        } else {
+            Text("Select a trip:")
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(
+                    items = trips,
+                    key = { it.id }
+                ) { trip ->
+                    if (trip.id == selectedTripId) {
+                        Button(onClick = { selectedTripId = trip.id }) {
+                            Text(trip.name)
+                        }
+                    } else {
+                        OutlinedButton(onClick = { selectedTripId = trip.id }) {
+                            Text(trip.name)
+                        }
+                    }
+                }
             }
-        )
 
-        Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-        Button(
-            onClick = {
-                documentPicker.launch(
-                    arrayOf("image/*", "application/pdf")
-                )
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Add Photo or Document")
+            Button(
+                onClick = {
+                    documentPicker.launch(
+                        arrayOf("image/*", "application/pdf")
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Add Photo or Document")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (attachments.isEmpty()) {
+                Text("No documents attached to this trip.")
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(
+                        items = attachments,
+                        key = { it.id }
+                    ) { attachment ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Text(
+                                    text = attachment.fileName,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                if (attachment.mimeType.startsWith("image/")) {
+                                    TripPhotoPreview(
+                                        photoUri = attachment.uri,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 180.dp)
+                                    )
+                                } else {
+                                    Text("PDF travel document")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -970,7 +1136,7 @@ private fun DestinationWeatherContent(
 @Composable
 private fun AddNewTripScreen(
     onBack: () -> Unit,
-    onSaveTrip: (Trip) -> Unit
+    onSaveTrip: (Trip, List<TripAttachmentDraft>) -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -1104,7 +1270,7 @@ private fun ManageTripsScreen(
                     onCancel = {
                         editingTrip = null
                     },
-                    onSave = { updatedTrip ->
+                    onSave = { updatedTrip, _ ->
                         onUpdateTrip(updatedTrip)
                         editingTrip = null
                     }
@@ -1121,7 +1287,7 @@ private fun TripForm(
     title: String,
     initialTrip: Trip?,
     onCancel: () -> Unit,
-    onSave: (Trip) -> Unit
+    onSave: (Trip, List<TripAttachmentDraft>) -> Unit
 ) {
     val context = LocalContext.current
 
@@ -1163,6 +1329,10 @@ private fun TripForm(
         mutableStateOf<Uri?>(null)
     }
 
+    var selectedAttachments by remember {
+        mutableStateOf<List<TripAttachmentDraft>>(emptyList())
+    }
+
     var errorMessage by rememberSaveable(formKey) {
         mutableStateOf("")
     }
@@ -1174,6 +1344,33 @@ private fun TripForm(
     var photoError by rememberSaveable(formKey) {
         mutableStateOf("")
     }
+
+    val attachmentPickerLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenMultipleDocuments()
+        ) { uris ->
+            val newAttachments = uris.map { uri ->
+                keepAttachmentPermission(
+                    context = context,
+                    uri = uri
+                )
+
+                TripAttachmentDraft(
+                    uri = uri.toString(),
+                    fileName = getAttachmentFileName(
+                        context = context,
+                        uri = uri
+                    ),
+                    mimeType = context.contentResolver
+                        .getType(uri)
+                        .orEmpty()
+                )
+            }
+
+            selectedAttachments = (
+                    selectedAttachments + newAttachments
+                    ).distinctBy { it.uri }
+        }
 
     val cameraLauncher =
         rememberLauncherForActivityResult(
@@ -1363,6 +1560,45 @@ private fun TripForm(
             )
         }
 
+        if (initialTrip == null) {
+            Button(
+                onClick = {
+                    attachmentPickerLauncher.launch(
+                        arrayOf("image/*", "application/pdf")
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Attach documents or images")
+            }
+
+            selectedAttachments.forEach { attachment ->
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp)
+                    ) {
+                        Text(
+                            text = attachment.fileName,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        if (attachment.mimeType.startsWith("image/")) {
+                            TripPhotoPreview(
+                                photoUri = attachment.uri,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 160.dp)
+                            )
+                        } else {
+                            Text("PDF selected")
+                        }
+                    }
+                }
+            }
+        }
+
         OutlinedTextField(
             value = startDate,
             onValueChange = {
@@ -1438,7 +1674,8 @@ private fun TripForm(
                                 endDate = endDate.trim(),
                                 notes = notes.trim(),
                                 photoUri = photoUri.ifBlank { null }
-                            )
+                            ),
+                            selectedAttachments
                         )
                     }
                 }
