@@ -63,6 +63,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.play.services.location)
     // Google Maps and Places
     implementation(libs.maps.compose)
     implementation(libs.places)

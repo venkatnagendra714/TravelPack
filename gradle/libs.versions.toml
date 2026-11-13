@@ -13,8 +13,10 @@ travelpackNavigationVersion = "2.10.2"
 ksp = "2.2.10-2.0.2"
 mapsCompose = "6.12.2"
 places = "5.1.1"
+playServicesLocation = "21.3.0"
 
 [libraries]
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 maps-compose = { module = "com.google.maps.android:maps-compose", version.ref = "mapsCompose" }
 
 places = { module = "com.google.android.libraries.places:places", version.ref = "places" }

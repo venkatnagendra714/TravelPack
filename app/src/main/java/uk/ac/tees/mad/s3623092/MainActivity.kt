@@ -2,9 +2,14 @@
 
 package uk.ac.tees.mad.s3623092
 
+import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -71,10 +76,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.libraries.places.api.Places
 import com.google.android.libraries.places.api.net.PlacesClient
 
 import kotlinx.coroutines.delay
+import java.util.Locale
+import java.util.concurrent.Executors
 import kotlin.time.Duration.Companion.seconds
 
 import uk.ac.tees.mad.s3623092.data.TripEntity
@@ -130,6 +140,116 @@ private fun Trip.routeText(): String {
     }
 }
 
+private fun getCurrentDeviceLocation(
+    context: Context,
+    onSuccess: (String) -> Unit,
+    onFailure: () -> Unit
+) {
+    val fineLocationGranted =
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+    val coarseLocationGranted =
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+    if (!fineLocationGranted && !coarseLocationGranted) {
+        onFailure()
+        return
+    }
+
+    val locationClient =
+        LocationServices.getFusedLocationProviderClient(context)
+
+    val cancellationToken =
+        CancellationTokenSource().token
+
+    try {
+        locationClient
+            .getCurrentLocation(
+                Priority.PRIORITY_HIGH_ACCURACY,
+                cancellationToken
+            )
+            .addOnSuccessListener { location ->
+
+                if (location == null) {
+                    onFailure()
+                    return@addOnSuccessListener
+                }
+
+                reverseGeocodeLocation(
+                    context = context,
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    onSuccess = onSuccess,
+                    onFailure = onFailure
+                )
+            }
+            .addOnFailureListener {
+                onFailure()
+            }
+    } catch (_: SecurityException) {
+        onFailure()
+    }
+}
+
+@Suppress("DEPRECATION")
+private fun reverseGeocodeLocation(
+    context: Context,
+    latitude: Double,
+    longitude: Double,
+    onSuccess: (String) -> Unit,
+    onFailure: () -> Unit
+) {
+    if (!Geocoder.isPresent()) {
+        onFailure()
+        return
+    }
+
+    val executor = Executors.newSingleThreadExecutor()
+
+    executor.execute {
+        val placeName = try {
+            val geocoder = Geocoder(
+                context,
+                Locale.getDefault()
+            )
+
+            val address = geocoder
+                .getFromLocation(latitude, longitude, 1)
+                ?.firstOrNull()
+
+            address?.getAddressLine(0)
+                ?.takeIf { it.isNotBlank() }
+                ?: listOfNotNull(
+                    address?.featureName,
+                    address?.locality,
+                    address?.subAdminArea,
+                    address?.adminArea,
+                    address?.postalCode,
+                    address?.countryName
+                )
+                    .distinct()
+                    .joinToString(", ")
+        } catch (_: Exception) {
+            ""
+        }
+
+        executor.shutdown()
+
+        Handler(Looper.getMainLooper()).post {
+            if (placeName.isBlank()) {
+                onFailure()
+            } else {
+                onSuccess(placeName)
+            }
+        }
+    }
+}
 class MainActivity : FragmentActivity() {
 
     private val tripViewModel: TripViewModel by viewModels()
@@ -959,6 +1079,37 @@ private fun TripForm(
         mutableStateOf("")
     }
 
+    var locationError by rememberSaveable(formKey) {
+        mutableStateOf("")
+    }
+
+    val locationPermissionLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+
+            val granted =
+                permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                        permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+            if (granted) {
+                getCurrentDeviceLocation(
+                    context = context,
+                    onSuccess = {
+                        fromLocation = it
+                        locationError = ""
+                    },
+                    onFailure = {
+                        locationError =
+                            "Unable to find your current location."
+                    }
+                )
+            } else {
+                locationError =
+                    "Location permission was denied."
+            }
+        }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -991,8 +1142,54 @@ private fun TripForm(
             placesClient = placesClient,
             onValueChange = {
                 fromLocation = it
+                locationError = ""
             }
         )
+
+        OutlinedButton(
+            onClick = {
+                val hasPermission =
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED ||
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            ) == PackageManager.PERMISSION_GRANTED
+
+                if (hasPermission) {
+                    getCurrentDeviceLocation(
+                        context = context,
+                        onSuccess = {
+                            fromLocation = it
+                            locationError = ""
+                        },
+                        onFailure = {
+                            locationError =
+                                "Unable to find your current location."
+                        }
+                    )
+                } else {
+                    locationPermissionLauncher.launch(
+                        arrayOf(
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Use current location")
+        }
+
+        if (locationError.isNotBlank()) {
+            Text(
+                text = locationError,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
 
         LocationAutocompleteField(
             label = "To location",
