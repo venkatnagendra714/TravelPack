@@ -48,6 +48,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -110,6 +111,7 @@ import uk.ac.tees.mad.s3623092.data.TripAttachmentEntity
 import uk.ac.tees.mad.s3623092.data.TripEntity
 import uk.ac.tees.mad.s3623092.ui.theme.TravelPackTheme
 import uk.ac.tees.mad.s3623092.viewmodel.TripViewModel
+import uk.ac.tees.mad.s3623092.weather.WeatherViewModel
 
 
 private object Routes {
@@ -459,6 +461,8 @@ class MainActivity : FragmentActivity() {
 
     private val tripViewModel: TripViewModel by viewModels()
 
+    private val weatherViewModel: WeatherViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -470,6 +474,7 @@ class MainActivity : FragmentActivity() {
             TravelPackTheme {
                 TravelPackNavigation(
                     tripViewModel = tripViewModel,
+                    weatherViewModel = weatherViewModel,
                     authenticate = { onSuccess, onError ->
                         showBiometricPrompt(
                             onSuccess = onSuccess,
@@ -592,6 +597,7 @@ class MainActivity : FragmentActivity() {
 @Composable
 private fun TravelPackNavigation(
     tripViewModel: TripViewModel,
+    weatherViewModel: WeatherViewModel,
     authenticate: (
         onSuccess: () -> Unit,
         onError: (String) -> Unit
@@ -632,6 +638,7 @@ private fun TravelPackNavigation(
             TripDashboardScreen(
                 trips = trips,
                 tripViewModel = tripViewModel,
+                weatherViewModel = weatherViewModel,
                 onAddTrip = {
                     navController.navigate(
                         Routes.ADD_TRIP
@@ -821,6 +828,7 @@ private fun AuthenticationContent(
 private fun TripDashboardScreen(
     trips: List<Trip>,
     tripViewModel: TripViewModel,
+    weatherViewModel: WeatherViewModel,
     onAddTrip: () -> Unit,
     onManageTrips: () -> Unit
 ) {
@@ -926,7 +934,13 @@ private fun TripDashboardScreen(
                 )
 
                 3 -> DestinationWeatherContent(
-                    trip = selectedTrip
+                    trips = sortedTrips,
+                    selectedTrip = selectedTrip,
+                    selectedTripId = selectedTripId,
+                    onTripSelected = {
+                        selectedTripId = it
+                    },
+                    weatherViewModel = weatherViewModel
                 )
             }
         }
@@ -993,12 +1007,23 @@ private fun DashboardOverview(
                         trip.id
                     }
                 ) { trip ->
+
+                    val isSelected =
+                        trip.id == selectedTripId
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
                                 onTripSelected(trip.id)
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
                             }
+                        )
                     ) {
                         Column(
                             modifier = Modifier.padding(16.dp)
@@ -1019,7 +1044,7 @@ private fun DashboardOverview(
                             Text("Start date: ${trip.startDate}")
                             Text("End date: ${trip.endDate}")
 
-                            if (trip.id == selectedTripId) {
+                            if (isSelected) {
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 Text(
@@ -1504,12 +1529,36 @@ private fun TripPhotoPreview(
 
 @Composable
 private fun DestinationWeatherContent(
-    trip: Trip?
+    trips: List<Trip>,
+    selectedTrip: Trip?,
+    selectedTripId: Long,
+    onTripSelected: (Long) -> Unit,
+    weatherViewModel: WeatherViewModel
 ) {
+    val weatherState by weatherViewModel
+        .uiState
+        .collectAsState()
+
+    LaunchedEffect(
+        selectedTrip?.id,
+        selectedTrip?.toLocation
+    ) {
+        if (selectedTrip == null) {
+            weatherViewModel.clearWeather()
+        } else {
+            weatherViewModel.loadWeather(
+                selectedTrip.toLocation
+            )
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(20.dp)
+            .verticalScroll(
+                rememberScrollState()
+            )
     ) {
         Text(
             text = "Destination Weather",
@@ -1517,31 +1566,235 @@ private fun DestinationWeatherContent(
             fontWeight = FontWeight.Bold
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        if (trip == null) {
-            Text("Add a trip to view destination weather.")
-        } else {
+        if (trips.isEmpty()) {
+            Text(
+                text = "Add a trip to view destination weather."
+            )
+
+            return@Column
+        }
+
+        TripSelector(
+            trips = trips,
+            selectedTripId = selectedTripId,
+            onTripSelected = onTripSelected
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        if (selectedTrip == null) {
+            Text("Select a trip to view its weather.")
+            return@Column
+        }
+
+        if (weatherState.isLoading) {
+            Text("Loading weather...")
+            return@Column
+        }
+
+        if (weatherState.errorMessage != null) {
+            Text(
+                text = weatherState.errorMessage
+                    ?: "Unable to load weather information.",
+                color = MaterialTheme.colorScheme.error
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Button(
+                onClick = {
+                    weatherViewModel.retry()
+                }
+            ) {
+                Text("Retry")
+            }
+
+            return@Column
+        }
+
+        val weather = weatherState.weather
+
+        if (weather == null) {
+            Text("Weather information is unavailable.")
+            return@Column
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Text(
+                    text = weather.destination,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "${
+                        formatWeatherNumber(
+                            weather.currentTemperature
+                        )
+                    } °C",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = weatherDescription(
+                        weather.currentWeatherCode
+                    ),
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    "Feels like: ${
+                        formatWeatherNumber(
+                            weather.apparentTemperature
+                        )
+                    } °C"
+                )
+
+                Text(
+                    "Wind speed: ${
+                        formatWeatherNumber(
+                            weather.currentWindSpeed
+                        )
+                    } km/h"
+                )
+
+                Text(
+                    "Precipitation: ${
+                        formatWeatherNumber(
+                            weather.currentPrecipitation
+                        )
+                    } mm"
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Text(
+            text = "Five-day forecast",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        weather.dailyForecast.forEach { forecast ->
             Card(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp)
+                    modifier = Modifier.padding(12.dp)
                 ) {
                     Text(
-                        text = trip.toLocation,
-                        style = MaterialTheme.typography.titleLarge,
+                        text = forecast.date,
                         fontWeight = FontWeight.Bold
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = weatherDescription(
+                            forecast.weatherCode
+                        )
+                    )
 
                     Text(
-                        "Weather information will be added in Sprint 3 Step 3."
+                        text = "Temperature: ${
+                            formatWeatherNumber(
+                                forecast.minimumTemperature
+                            )
+                        } °C to ${
+                            formatWeatherNumber(
+                                forecast.maximumTemperature
+                            )
+                        } °C"
+                    )
+
+                    Text(
+                        text = "Rain probability: ${
+                            formatWeatherNumber(
+                                forecast.precipitationProbability
+                            )
+                        }%"
                     )
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Weather data provided by Open-Meteo.",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+
+private fun formatWeatherNumber(
+    value: Double
+): String {
+    return String.format(
+        Locale.getDefault(),
+        "%.1f",
+        value
+    )
+}
+
+
+private fun weatherDescription(
+    weatherCode: Int
+): String {
+    return when (weatherCode) {
+        0 -> "Clear sky"
+
+        1, 2, 3 ->
+            "Mainly clear, partly cloudy or overcast"
+
+        45, 48 ->
+            "Fog"
+
+        51, 53, 55 ->
+            "Drizzle"
+
+        56, 57 ->
+            "Freezing drizzle"
+
+        61, 63, 65 ->
+            "Rain"
+
+        66, 67 ->
+            "Freezing rain"
+
+        71, 73, 75, 77 ->
+            "Snow"
+
+        80, 81, 82 ->
+            "Rain showers"
+
+        85, 86 ->
+            "Snow showers"
+
+        95 ->
+            "Thunderstorm"
+
+        96, 99 ->
+            "Thunderstorm with hail"
+
+        else ->
+            "Weather condition unavailable"
     }
 }
 
