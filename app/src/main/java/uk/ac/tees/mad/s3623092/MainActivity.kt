@@ -38,7 +38,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -49,7 +48,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -84,7 +82,6 @@ import androidx.compose.ui.unit.dp
 
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-
 import androidx.fragment.app.FragmentActivity
 
 import androidx.navigation.compose.NavHost
@@ -94,14 +91,15 @@ import androidx.navigation.compose.rememberNavController
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
-
 import com.google.android.libraries.places.api.Places
 import com.google.android.libraries.places.api.net.PlacesClient
 
 import kotlinx.coroutines.delay
 
 import java.io.File
+import java.text.ParsePosition
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -121,6 +119,7 @@ private object Routes {
     const val MANAGE_TRIPS = "manage_trips"
 }
 
+
 data class Trip(
     val id: Long,
     val name: String,
@@ -132,15 +131,18 @@ data class Trip(
     val photoUri: String? = null
 )
 
+
 data class TripAttachmentDraft(
     val uri: String,
     val fileName: String,
     val mimeType: String
 )
 
+
 data class ChecklistItemDraft(
     val title: String
 )
+
 
 private fun TripEntity.toUiTrip(): Trip {
     return Trip(
@@ -155,6 +157,7 @@ private fun TripEntity.toUiTrip(): Trip {
     )
 }
 
+
 private fun Trip.toEntity(): TripEntity {
     return TripEntity(
         id = id,
@@ -168,6 +171,7 @@ private fun Trip.toEntity(): TripEntity {
     )
 }
 
+
 private fun TripAttachmentDraft.toEntity(
     tripId: Long
 ): TripAttachmentEntity {
@@ -179,6 +183,7 @@ private fun TripAttachmentDraft.toEntity(
     )
 }
 
+
 private fun ChecklistItemDraft.toEntity(
     tripId: Long
 ): ChecklistItemEntity {
@@ -188,6 +193,7 @@ private fun ChecklistItemDraft.toEntity(
     )
 }
 
+
 private fun Trip.routeText(): String {
     return if (fromLocation.isBlank()) {
         toLocation
@@ -196,7 +202,8 @@ private fun Trip.routeText(): String {
     }
 }
 
-private val supportedTripDateFormats = listOf(
+
+private val supportedDateFormats = listOf(
     "yyyy-MM-dd",
     "dd-MM-yyyy",
     "d-M-yyyy",
@@ -208,54 +215,53 @@ private val supportedTripDateFormats = listOf(
     "d/M/yy"
 )
 
-private fun parseTripDate(
-    dateText: String
-): Long? {
-    val cleanedDate = dateText.trim()
 
-    if (cleanedDate.isBlank()) {
+private fun parseTripDate(value: String): Date? {
+    val cleanValue = value.trim()
+
+    if (cleanValue.isBlank()) {
         return null
     }
 
-    for (pattern in supportedTripDateFormats) {
-        try {
-            val formatter = SimpleDateFormat(
-                pattern,
-                Locale.UK
-            ).apply {
-                isLenient = false
-            }
+    supportedDateFormats.forEach { pattern ->
+        val formatter = SimpleDateFormat(
+            pattern,
+            Locale.getDefault()
+        )
 
-            val parsedDate = formatter
-                .parse(cleanedDate)
-                ?.time
+        formatter.isLenient = false
 
-            if (parsedDate != null) {
-                return parsedDate
-            }
-        } catch (_: Exception) {
-            // Try the next date format.
+        val position = ParsePosition(0)
+        val parsedDate = formatter.parse(
+            cleanValue,
+            position
+        )
+
+        if (
+            parsedDate != null &&
+            position.index == cleanValue.length
+        ) {
+            return parsedDate
         }
     }
 
     return null
 }
 
+
 private fun sortTripsForDashboard(
     trips: List<Trip>
 ): List<Trip> {
     return trips.sortedWith(
         compareBy<Trip> {
-            parseTripDate(it.startDate) ?: Long.MAX_VALUE
+            parseTripDate(it.startDate)?.time
+                ?: Long.MAX_VALUE
+        }.thenBy {
+            it.name.lowercase(Locale.getDefault())
         }
-            .thenBy {
-                it.name.lowercase(Locale.UK)
-            }
-            .thenBy {
-                it.id
-            }
     )
 }
+
 
 private fun getAttachmentFileName(
     context: Context,
@@ -277,7 +283,10 @@ private fun getAttachmentFileName(
                 OpenableColumns.DISPLAY_NAME
             )
 
-        if (nameIndex >= 0 && cursor.moveToFirst()) {
+        if (
+            nameIndex >= 0 &&
+            cursor.moveToFirst()
+        ) {
             cursor.getString(nameIndex)
         } else {
             null
@@ -287,6 +296,7 @@ private fun getAttachmentFileName(
     } ?: uri.lastPathSegment
     ?: "Travel attachment"
 }
+
 
 private fun keepAttachmentPermission(
     context: Context,
@@ -298,9 +308,10 @@ private fun keepAttachmentPermission(
             Intent.FLAG_GRANT_READ_URI_PERMISSION
         )
     } catch (_: SecurityException) {
-        // Some document providers do not support persistable permissions.
+        // Some providers do not support persistable permissions.
     }
 }
+
 
 private fun createTripPhotoUri(
     context: Context
@@ -329,6 +340,7 @@ private fun createTripPhotoUri(
     }
 }
 
+
 private fun getCurrentDeviceLocation(
     context: Context,
     onSuccess: (String) -> Unit,
@@ -346,45 +358,47 @@ private fun getCurrentDeviceLocation(
             Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 
-    if (!fineLocationGranted && !coarseLocationGranted) {
+    if (
+        !fineLocationGranted &&
+        !coarseLocationGranted
+    ) {
         onFailure()
         return
     }
 
     val locationClient =
-        LocationServices.getFusedLocationProviderClient(context)
+        LocationServices.getFusedLocationProviderClient(
+            context
+        )
 
     val cancellationToken =
         CancellationTokenSource().token
 
     try {
-        locationClient
-            .getCurrentLocation(
-                Priority.PRIORITY_HIGH_ACCURACY,
-                cancellationToken
-            )
-            .addOnSuccessListener { location ->
-
-                if (location == null) {
-                    onFailure()
-                    return@addOnSuccessListener
-                }
-
-                reverseGeocodeLocation(
-                    context = context,
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    onSuccess = onSuccess,
-                    onFailure = onFailure
-                )
-            }
-            .addOnFailureListener {
+        locationClient.getCurrentLocation(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            cancellationToken
+        ).addOnSuccessListener { location ->
+            if (location == null) {
                 onFailure()
+                return@addOnSuccessListener
             }
+
+            reverseGeocodeLocation(
+                context = context,
+                latitude = location.latitude,
+                longitude = location.longitude,
+                onSuccess = onSuccess,
+                onFailure = onFailure
+            )
+        }.addOnFailureListener {
+            onFailure()
+        }
     } catch (_: SecurityException) {
         onFailure()
     }
 }
+
 
 @Suppress("DEPRECATION")
 private fun reverseGeocodeLocation(
@@ -417,19 +431,13 @@ private fun reverseGeocodeLocation(
                 ?.firstOrNull()
 
             address?.getAddressLine(0)
-                ?.takeIf {
-                    it.isNotBlank()
-                }
+                ?.takeIf { it.isNotBlank() }
                 ?: listOfNotNull(
                     address?.featureName,
                     address?.locality,
-                    address?.subAdminArea,
                     address?.adminArea,
-                    address?.postalCode,
                     address?.countryName
-                )
-                    .distinct()
-                    .joinToString(", ")
+                ).distinct().joinToString(", ")
         } catch (_: Exception) {
             ""
         }
@@ -446,13 +454,12 @@ private fun reverseGeocodeLocation(
     }
 }
 
+
 class MainActivity : FragmentActivity() {
 
     private val tripViewModel: TripViewModel by viewModels()
 
-    override fun onCreate(
-        savedInstanceState: Bundle?
-    ) {
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         initialisePlacesSdk()
@@ -499,7 +506,7 @@ class MainActivity : FragmentActivity() {
         } else if (placesApiKey.isBlank()) {
             Log.e(
                 "TravelPack",
-                "Google Places API key is missing"
+                "Google Places API key is missing."
             )
         }
     }
@@ -520,7 +527,9 @@ class MainActivity : FragmentActivity() {
             }
 
         when (
-            biometricManager.canAuthenticate(authenticators)
+            biometricManager.canAuthenticate(
+                authenticators
+            )
         ) {
             BiometricManager.BIOMETRIC_SUCCESS -> {
                 val promptInfo =
@@ -529,7 +538,9 @@ class MainActivity : FragmentActivity() {
                         .setSubtitle(
                             "Use fingerprint, face or your device PIN"
                         )
-                        .setAllowedAuthenticators(authenticators)
+                        .setAllowedAuthenticators(
+                            authenticators
+                        )
                         .build()
 
                 val prompt = BiometricPrompt(
@@ -577,6 +588,7 @@ class MainActivity : FragmentActivity() {
     }
 }
 
+
 @Composable
 private fun TravelPackNavigation(
     tripViewModel: TripViewModel,
@@ -591,9 +603,11 @@ private fun TravelPackNavigation(
         .trips
         .collectAsState()
 
-    val trips = savedTrips.map {
-        it.toUiTrip()
-    }
+    val trips = sortTripsForDashboard(
+        savedTrips.map { entity ->
+            entity.toUiTrip()
+        }
+    )
 
     NavHost(
         navController = navController,
@@ -640,7 +654,6 @@ private fun TravelPackNavigation(
                         trip,
                         attachments,
                         checklistItems ->
-
                     tripViewModel
                         .saveTripWithAttachmentsAndChecklist(
                             trip = trip.toEntity(),
@@ -677,6 +690,7 @@ private fun TravelPackNavigation(
         }
     }
 }
+
 
 @Composable
 private fun SplashAndAuthenticationScreen(
@@ -719,6 +733,7 @@ private fun SplashAndAuthenticationScreen(
     }
 }
 
+
 @Composable
 private fun SplashContent() {
     Surface(
@@ -746,6 +761,7 @@ private fun SplashContent() {
         }
     }
 }
+
 
 @Composable
 private fun AuthenticationContent(
@@ -800,6 +816,7 @@ private fun AuthenticationContent(
     }
 }
 
+
 @Composable
 private fun TripDashboardScreen(
     trips: List<Trip>,
@@ -807,10 +824,6 @@ private fun TripDashboardScreen(
     onAddTrip: () -> Unit,
     onManageTrips: () -> Unit
 ) {
-    val dashboardTrips = remember(trips) {
-        sortTripsForDashboard(trips)
-    }
-
     var selectedTab by rememberSaveable {
         mutableIntStateOf(0)
     }
@@ -819,23 +832,24 @@ private fun TripDashboardScreen(
         mutableStateOf(0L)
     }
 
-    LaunchedEffect(dashboardTrips) {
-        val firstTripId = dashboardTrips
-            .firstOrNull()
-            ?.id
-            ?: 0L
+    val sortedTrips = sortTripsForDashboard(trips)
 
-        val selectedTripStillExists =
-            dashboardTrips.any {
+    LaunchedEffect(sortedTrips) {
+        if (
+            sortedTrips.isNotEmpty() &&
+            sortedTrips.none {
                 it.id == selectedTripId
             }
+        ) {
+            selectedTripId = sortedTrips.first().id
+        }
 
-        if (!selectedTripStillExists) {
-            selectedTripId = firstTripId
+        if (sortedTrips.isEmpty()) {
+            selectedTripId = 0L
         }
     }
 
-    val selectedTrip = dashboardTrips.firstOrNull {
+    val selectedTrip = sortedTrips.firstOrNull {
         it.id == selectedTripId
     }
 
@@ -862,7 +876,6 @@ private fun TripDashboardScreen(
             )
         }
     ) { innerPadding ->
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -886,7 +899,7 @@ private fun TripDashboardScreen(
 
             when (selectedTab) {
                 0 -> DashboardOverview(
-                    trips = dashboardTrips,
+                    trips = sortedTrips,
                     selectedTripId = selectedTripId,
                     onTripSelected = {
                         selectedTripId = it
@@ -895,7 +908,7 @@ private fun TripDashboardScreen(
                 )
 
                 1 -> TravelChecklistContent(
-                    trips = dashboardTrips,
+                    trips = sortedTrips,
                     selectedTripId = selectedTripId,
                     onTripSelected = {
                         selectedTripId = it
@@ -904,7 +917,7 @@ private fun TripDashboardScreen(
                 )
 
                 2 -> DocumentsContent(
-                    trips = dashboardTrips,
+                    trips = sortedTrips,
                     selectedTripId = selectedTripId,
                     onTripSelected = {
                         selectedTripId = it
@@ -919,6 +932,7 @@ private fun TripDashboardScreen(
         }
     }
 }
+
 
 @Composable
 private fun DashboardOverview(
@@ -943,13 +957,13 @@ private fun DashboardOverview(
 
         if (trips.isEmpty()) {
             Text(
-                text = "You have no trips yet.",
+                text = "No trips added yet.",
                 style = MaterialTheme.typography.titleMedium
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Text("Add your first trip to get started.")
+            Text("Add your first trip to begin planning.")
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -957,7 +971,7 @@ private fun DashboardOverview(
                 onClick = onAddTrip,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Add First Trip")
+                Text("Add Your First Trip")
             }
         } else {
             Text(
@@ -970,33 +984,21 @@ private fun DashboardOverview(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .heightIn(max = 500.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(
                     items = trips,
-                    key = {
-                        it.id
+                    key = { trip ->
+                        trip.id
                     }
                 ) { trip ->
-
-                    val isSelected =
-                        trip.id == selectedTripId
-
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
                                 onTripSelected(trip.id)
-                            },
-                        colors = CardDefaults.cardColors(
-                            containerColor =
-                                if (isSelected) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                }
-                        )
+                            }
                     ) {
                         Column(
                             modifier = Modifier.padding(16.dp)
@@ -1007,17 +1009,17 @@ private fun DashboardOverview(
                                 fontWeight = FontWeight.Bold
                             )
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
 
                             Text("From: ${trip.fromLocation}")
                             Text("To: ${trip.toLocation}")
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
 
                             Text("Start date: ${trip.startDate}")
                             Text("End date: ${trip.endDate}")
 
-                            if (isSelected) {
+                            if (trip.id == selectedTripId) {
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 Text(
@@ -1043,43 +1045,51 @@ private fun DashboardOverview(
     }
 }
 
+
 @Composable
-private fun TripPhotoPreview(
-    photoUri: String?,
-    modifier: Modifier = Modifier
+private fun TripSelector(
+    trips: List<Trip>,
+    selectedTripId: Long,
+    onTripSelected: (Long) -> Unit
 ) {
-    if (photoUri.isNullOrBlank()) {
-        return
-    }
+    Text(
+        text = "Select a trip",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold
+    )
 
-    val context = LocalContext.current
+    Spacer(modifier = Modifier.height(8.dp))
 
-    val bitmap by produceState<Bitmap?>(
-        initialValue = null,
-        key1 = photoUri
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        value = try {
-            context.contentResolver
-                .openInputStream(
-                    Uri.parse(photoUri)
-                )
-                ?.use {
-                    BitmapFactory.decodeStream(it)
+        items(
+            items = trips,
+            key = { trip ->
+                trip.id
+            }
+        ) { trip ->
+            if (trip.id == selectedTripId) {
+                Button(
+                    onClick = {
+                        onTripSelected(trip.id)
+                    }
+                ) {
+                    Text(trip.name)
                 }
-        } catch (_: Exception) {
-            null
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        onTripSelected(trip.id)
+                    }
+                ) {
+                    Text(trip.name)
+                }
+            }
         }
     }
-
-    bitmap?.let { image ->
-        Image(
-            bitmap = image.asImageBitmap(),
-            contentDescription = "Saved travel photo",
-            modifier = modifier,
-            contentScale = ContentScale.Crop
-        )
-    }
 }
+
 
 @Composable
 private fun TravelChecklistContent(
@@ -1116,42 +1126,11 @@ private fun TravelChecklistContent(
         if (trips.isEmpty()) {
             Text("Create a trip first to add checklist items.")
         } else {
-            Text(
-                text = "Select a trip",
-                style = MaterialTheme.typography.titleMedium
+            TripSelector(
+                trips = trips,
+                selectedTripId = selectedTripId,
+                onTripSelected = onTripSelected
             )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(
-                    items = trips,
-                    key = {
-                        it.id
-                    }
-                ) { trip ->
-
-                    if (trip.id == selectedTripId) {
-                        Button(
-                            onClick = {
-                                onTripSelected(trip.id)
-                            }
-                        ) {
-                            Text(trip.name)
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = {
-                                onTripSelected(trip.id)
-                            }
-                        ) {
-                            Text(trip.name)
-                        }
-                    }
-                }
-            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -1164,7 +1143,7 @@ private fun TravelChecklistContent(
                     onValueChange = {
                         newItemText = it
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(0.70f),
                     singleLine = true,
                     label = {
                         Text("New checklist item")
@@ -1194,49 +1173,56 @@ private fun TravelChecklistContent(
                 Text("No checklist items yet.")
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     items(
                         items = checklistItems,
-                        key = {
-                            it.id
+                        key = { item ->
+                            item.id
                         }
                     ) { item ->
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        Card(
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Checkbox(
-                                checked = item.isCompleted,
-                                onCheckedChange = { checked ->
-                                    tripViewModel.updateChecklistItem(
-                                        item.copy(
-                                            isCompleted = checked
-                                        )
-                                    )
-                                }
-                            )
-
-                            TextButton(
-                                onClick = {
-                                    editingItem = item
-                                },
-                                modifier = Modifier.weight(1f)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = item.title,
-                                    modifier = Modifier.fillMaxWidth()
+                                Checkbox(
+                                    checked = item.isCompleted,
+                                    onCheckedChange = { checked ->
+                                        tripViewModel
+                                            .updateChecklistItem(
+                                                item.copy(
+                                                    isCompleted = checked
+                                                )
+                                            )
+                                    }
                                 )
-                            }
 
-                            TextButton(
-                                onClick = {
-                                    tripViewModel.deleteChecklistItem(item)
+                                TextButton(
+                                    onClick = {
+                                        editingItem = item
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.62f)
+                                ) {
+                                    Text(item.title)
                                 }
-                            ) {
-                                Text("Delete")
+
+                                TextButton(
+                                    onClick = {
+                                        tripViewModel
+                                            .deleteChecklistItem(item)
+                                    }
+                                ) {
+                                    Text("Delete")
+                                }
                             }
                         }
                     }
@@ -1272,14 +1258,11 @@ private fun TravelChecklistContent(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val cleanTitle =
-                            editedTitle.trim()
+                        val cleanTitle = editedTitle.trim()
 
                         if (cleanTitle.isNotBlank()) {
                             tripViewModel.updateChecklistItem(
-                                item.copy(
-                                    title = cleanTitle
-                                )
+                                item.copy(title = cleanTitle)
                             )
 
                             editingItem = null
@@ -1302,6 +1285,7 @@ private fun TravelChecklistContent(
     }
 }
 
+
 @Composable
 private fun DocumentsContent(
     trips: List<Trip>,
@@ -1309,11 +1293,11 @@ private fun DocumentsContent(
     onTripSelected: (Long) -> Unit,
     tripViewModel: TripViewModel
 ) {
+    val context = LocalContext.current
+
     val selectedTrip = trips.firstOrNull {
         it.id == selectedTripId
     }
-
-    val context = LocalContext.current
 
     val attachments by tripViewModel
         .attachmentsForTrip(selectedTripId)
@@ -1323,16 +1307,15 @@ private fun DocumentsContent(
         rememberLauncherForActivityResult(
             contract = ActivityResultContracts.OpenMultipleDocuments()
         ) { uris ->
-
             if (selectedTrip != null) {
-                val drafts = uris.map { uri ->
-
+                val newAttachments = uris.map { uri ->
                     keepAttachmentPermission(
                         context = context,
                         uri = uri
                     )
 
-                    TripAttachmentDraft(
+                    TripAttachmentEntity(
+                        tripId = selectedTrip.id,
                         uri = uri.toString(),
                         fileName = getAttachmentFileName(
                             context = context,
@@ -1346,12 +1329,13 @@ private fun DocumentsContent(
 
                 tripViewModel.addAttachments(
                     tripId = selectedTrip.id,
-                    attachments = drafts.map {
-                        it.toEntity(selectedTrip.id)
-                    }
+                    attachments = newAttachments
                 )
             }
         }
+
+    val capturedPhotoExists =
+        !selectedTrip?.photoUri.isNullOrBlank()
 
     Column(
         modifier = Modifier
@@ -1369,39 +1353,11 @@ private fun DocumentsContent(
         if (trips.isEmpty()) {
             Text("Add a trip before attaching documents.")
         } else {
-            Text("Select a trip:")
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(
-                    items = trips,
-                    key = {
-                        it.id
-                    }
-                ) { trip ->
-
-                    if (trip.id == selectedTripId) {
-                        Button(
-                            onClick = {
-                                onTripSelected(trip.id)
-                            }
-                        ) {
-                            Text(trip.name)
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = {
-                                onTripSelected(trip.id)
-                            }
-                        ) {
-                            Text(trip.name)
-                        }
-                    }
-                }
-            }
+            TripSelector(
+                trips = trips,
+                selectedTripId = selectedTripId,
+                onTripSelected = onTripSelected
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -1416,24 +1372,19 @@ private fun DocumentsContent(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Add Photo or Document")
+                Text("Add More Documents or Images")
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (attachments.isEmpty()) {
-                Text("No documents attached to this trip.")
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(
-                        items = attachments,
-                        key = {
-                            it.id
-                        }
-                    ) { attachment ->
-
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (capturedPhotoExists) {
+                    item {
                         Card(
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1441,7 +1392,7 @@ private fun DocumentsContent(
                                 modifier = Modifier.padding(12.dp)
                             ) {
                                 Text(
-                                    text = attachment.fileName,
+                                    text = "Captured travel photo",
                                     fontWeight = FontWeight.Bold
                                 )
 
@@ -1449,29 +1400,107 @@ private fun DocumentsContent(
                                     modifier = Modifier.height(8.dp)
                                 )
 
-                                if (
-                                    attachment.mimeType
-                                        .startsWith("image/")
-                                ) {
-                                    TripPhotoPreview(
-                                        photoUri = attachment.uri,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(
-                                                max = 180.dp
-                                            )
-                                    )
-                                } else {
-                                    Text("PDF travel document")
-                                }
+                                TripPhotoPreview(
+                                    photoUri = selectedTrip?.photoUri,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 220.dp)
+                                )
                             }
                         }
+                    }
+                }
+
+                items(
+                    items = attachments,
+                    key = { attachment ->
+                        attachment.id
+                    }
+                ) { attachment ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(
+                                text = attachment.fileName,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Spacer(
+                                modifier = Modifier.height(8.dp)
+                            )
+
+                            if (
+                                attachment.mimeType
+                                    .startsWith("image/")
+                            ) {
+                                TripPhotoPreview(
+                                    photoUri = attachment.uri,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 220.dp)
+                                )
+                            } else {
+                                Text("PDF travel document")
+                            }
+                        }
+                    }
+                }
+
+                if (
+                    !capturedPhotoExists &&
+                    attachments.isEmpty()
+                ) {
+                    item {
+                        Text(
+                            "No documents or images attached to this trip."
+                        )
                     }
                 }
             }
         }
     }
 }
+
+
+@Composable
+private fun TripPhotoPreview(
+    photoUri: String?,
+    modifier: Modifier = Modifier
+) {
+    if (photoUri.isNullOrBlank()) {
+        return
+    }
+
+    val context = LocalContext.current
+
+    val bitmap by produceState<Bitmap?>(
+        initialValue = null,
+        key1 = photoUri
+    ) {
+        value = try {
+            context.contentResolver
+                .openInputStream(Uri.parse(photoUri))
+                ?.use { inputStream ->
+                    BitmapFactory.decodeStream(inputStream)
+                }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    bitmap?.let { image ->
+        Image(
+            bitmap = image.asImageBitmap(),
+            contentDescription = "Travel image",
+            modifier = modifier,
+            contentScale = ContentScale.Crop
+        )
+    }
+}
+
 
 @Composable
 private fun DestinationWeatherContent(
@@ -1508,13 +1537,14 @@ private fun DestinationWeatherContent(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        "Weather information for this destination."
+                        "Weather information will be added in Sprint 3 Step 3."
                     )
                 }
             }
         }
     }
 }
+
 
 @Composable
 private fun AddNewTripScreen(
@@ -1532,16 +1562,13 @@ private fun AddNewTripScreen(
                     Text("Add New Trip")
                 },
                 navigationIcon = {
-                    TextButton(
-                        onClick = onBack
-                    ) {
+                    TextButton(onClick = onBack) {
                         Text("Back")
                     }
                 }
             )
         }
     ) { innerPadding ->
-
         TripForm(
             modifier = Modifier
                 .padding(innerPadding)
@@ -1553,6 +1580,7 @@ private fun AddNewTripScreen(
         )
     }
 }
+
 
 @Composable
 private fun ManageTripsScreen(
@@ -1572,16 +1600,13 @@ private fun ManageTripsScreen(
                     Text("Manage Trips")
                 },
                 navigationIcon = {
-                    TextButton(
-                        onClick = onBack
-                    ) {
+                    TextButton(onClick = onBack) {
                         Text("Back")
                     }
                 }
             )
         }
     ) { innerPadding ->
-
         if (trips.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -1601,11 +1626,10 @@ private fun ManageTripsScreen(
             ) {
                 items(
                     items = trips,
-                    key = {
-                        it.id
+                    key = { trip ->
+                        trip.id
                     }
                 ) { trip ->
-
                     Card(
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1618,7 +1642,13 @@ private fun ManageTripsScreen(
                                 fontWeight = FontWeight.Bold
                             )
 
+                            Spacer(modifier = Modifier.height(4.dp))
+
                             Text(trip.routeText())
+
+                            Text(
+                                "${trip.startDate} to ${trip.endDate}"
+                            )
 
                             Spacer(modifier = Modifier.height(12.dp))
 
@@ -1651,7 +1681,6 @@ private fun ManageTripsScreen(
     }
 
     editingTrip?.let { trip ->
-
         AlertDialog(
             onDismissRequest = {
                 editingTrip = null
@@ -1661,9 +1690,7 @@ private fun ManageTripsScreen(
             },
             text = {
                 TripForm(
-                    modifier = Modifier.heightIn(
-                        max = 500.dp
-                    ),
+                    modifier = Modifier.heightIn(max = 500.dp),
                     title = "",
                     initialTrip = trip,
                     onCancel = {
@@ -1680,6 +1707,7 @@ private fun ManageTripsScreen(
     }
 }
 
+
 @Composable
 private fun TripForm(
     modifier: Modifier = Modifier,
@@ -1694,53 +1722,38 @@ private fun TripForm(
 ) {
     val context = LocalContext.current
 
-    val placesClient: PlacesClient =
-        remember(context) {
-            Places.createClient(context)
-        }
+    val placesClient: PlacesClient = remember(context) {
+        Places.createClient(context)
+    }
 
     val formKey = initialTrip?.id ?: 0L
 
     var tripName by rememberSaveable(formKey) {
-        mutableStateOf(
-            initialTrip?.name.orEmpty()
-        )
+        mutableStateOf(initialTrip?.name.orEmpty())
     }
 
     var fromLocation by rememberSaveable(formKey) {
-        mutableStateOf(
-            initialTrip?.fromLocation.orEmpty()
-        )
+        mutableStateOf(initialTrip?.fromLocation.orEmpty())
     }
 
     var toLocation by rememberSaveable(formKey) {
-        mutableStateOf(
-            initialTrip?.toLocation.orEmpty()
-        )
+        mutableStateOf(initialTrip?.toLocation.orEmpty())
     }
 
     var startDate by rememberSaveable(formKey) {
-        mutableStateOf(
-            initialTrip?.startDate.orEmpty()
-        )
+        mutableStateOf(initialTrip?.startDate.orEmpty())
     }
 
     var endDate by rememberSaveable(formKey) {
-        mutableStateOf(
-            initialTrip?.endDate.orEmpty()
-        )
+        mutableStateOf(initialTrip?.endDate.orEmpty())
     }
 
     var notes by rememberSaveable(formKey) {
-        mutableStateOf(
-            initialTrip?.notes.orEmpty()
-        )
+        mutableStateOf(initialTrip?.notes.orEmpty())
     }
 
     var photoUri by rememberSaveable(formKey) {
-        mutableStateOf(
-            initialTrip?.photoUri.orEmpty()
-        )
+        mutableStateOf(initialTrip?.photoUri.orEmpty())
     }
 
     var pendingPhotoUri by remember {
@@ -1779,9 +1792,7 @@ private fun TripForm(
         rememberLauncherForActivityResult(
             ActivityResultContracts.OpenMultipleDocuments()
         ) { uris ->
-
             val newAttachments = uris.map { uri ->
-
                 keepAttachmentPermission(
                     context = context,
                     uri = uri
@@ -1801,8 +1812,7 @@ private fun TripForm(
 
             selectedAttachments = (
                     selectedAttachments + newAttachments
-                    )
-                .distinctBy {
+                    ).distinctBy {
                     it.uri
                 }
         }
@@ -1811,25 +1821,21 @@ private fun TripForm(
         rememberLauncherForActivityResult(
             ActivityResultContracts.TakePicture()
         ) { savedSuccessfully ->
-
             if (savedSuccessfully) {
-                photoUri =
-                    pendingPhotoUri
-                        ?.toString()
-                        .orEmpty()
+                photoUri = pendingPhotoUri
+                    ?.toString()
+                    .orEmpty()
 
                 photoError = ""
             } else {
-                photoError =
-                    "The photo was not saved."
+                photoError = "The photo was not saved."
             }
 
             pendingPhotoUri = null
         }
 
     val launchCamera: () -> Unit = {
-        val newPhotoUri =
-            createTripPhotoUri(context)
+        val newPhotoUri = createTripPhotoUri(context)
 
         if (newPhotoUri == null) {
             photoError =
@@ -1844,7 +1850,6 @@ private fun TripForm(
         rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
-
             if (granted) {
                 launchCamera()
             } else {
@@ -1857,7 +1862,6 @@ private fun TripForm(
         rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { permissions ->
-
             val granted =
                 permissions[
                     Manifest.permission.ACCESS_FINE_LOCATION
@@ -2023,11 +2027,10 @@ private fun TripForm(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Attach documents or images")
+                Text("Attach Documents or Images")
             }
 
             selectedAttachments.forEach { attachment ->
-
                 Card(
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -2047,9 +2050,7 @@ private fun TripForm(
                                 photoUri = attachment.uri,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(
-                                        max = 160.dp
-                                    )
+                                    .heightIn(max = 160.dp)
                             )
                         } else {
                             Text("PDF selected")
@@ -2075,7 +2076,7 @@ private fun TripForm(
                     onValueChange = {
                         newChecklistItem = it
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(0.70f),
                     singleLine = true,
                     label = {
                         Text("Add checklist item")
@@ -2093,7 +2094,7 @@ private fun TripForm(
                             checklistItems =
                                 checklistItems +
                                         ChecklistItemDraft(
-                                            cleanItem
+                                            title = cleanItem
                                         )
 
                             newChecklistItem = ""
@@ -2106,23 +2107,21 @@ private fun TripForm(
             }
 
             checklistItems.forEachIndexed { index, item ->
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "• ${item.title}",
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth(0.70f)
                     )
 
                     TextButton(
                         onClick = {
                             checklistItems =
-                                checklistItems
-                                    .toMutableList()
-                                    .also {
-                                        it.removeAt(index)
+                                checklistItems.toMutableList()
+                                    .also { list ->
+                                        list.removeAt(index)
                                     }
                         }
                     ) {
@@ -2179,9 +2178,7 @@ private fun TripForm(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End
         ) {
-            TextButton(
-                onClick = onCancel
-            ) {
+            TextButton(onClick = onCancel) {
                 Text("Cancel")
             }
 
@@ -2209,9 +2206,8 @@ private fun TripForm(
                                 endDate = endDate.trim(),
                                 notes = notes.trim(),
                                 photoUri = photoUri
-                                    .ifBlank {
-                                        null
-                                    }
+                                    .trim()
+                                    .ifBlank { null }
                             ),
                             selectedAttachments,
                             checklistItems
