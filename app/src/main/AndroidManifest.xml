@@ -1,25 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Internet access for Google Places and map services -->
+    <!-- Internet for weather, Places and location services -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Biometric authentication -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
-    <!-- Location access -->
+    <!-- Location for current-location selection -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- Camera access -->
+    <!-- Camera for trip photos -->
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- Allow installation on devices without fingerprint hardware -->
+    <!-- Notifications on Android 13 and later -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-feature
         android:name="android.hardware.fingerprint"
         android:required="false" />
 
-    <!-- Camera is optional because some devices may not have one -->
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />
@@ -32,7 +33,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.TravelPack">
 
-        <!-- Google Maps and Places API key -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_API_KEY}" />
@@ -48,7 +48,10 @@
 
         </activity>
 
-        <!-- Secure provider for saving camera photos -->
+        <receiver
+            android:name=".notifications.TripNotificationReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -58,6 +61,7 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
+
         </provider>
 
     </application>

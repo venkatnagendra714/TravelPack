@@ -1,6 +1,7 @@
 package uk.ac.tees.mad.s3623092.data
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -10,15 +11,35 @@ import kotlinx.coroutines.flow.Flow
 interface TripAttachmentDao {
 
     @Query(
-        "SELECT * FROM trip_attachments " +
-                "WHERE tripId = :tripId ORDER BY id ASC"
+        """
+        SELECT * FROM trip_attachments
+        WHERE tripId = :tripId
+        ORDER BY id ASC
+        """
     )
     fun getAttachmentsForTrip(
         tripId: Long
     ): Flow<List<TripAttachmentEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(
+        onConflict = OnConflictStrategy.REPLACE
+    )
     suspend fun insertAttachments(
         attachments: List<TripAttachmentEntity>
+    )
+
+    @Delete
+    suspend fun deleteAttachment(
+        attachment: TripAttachmentEntity
+    )
+
+    @Query(
+        """
+        DELETE FROM trip_attachments
+        WHERE tripId = :tripId
+        """
+    )
+    suspend fun deleteAttachmentsForTrip(
+        tripId: Long
     )
 }

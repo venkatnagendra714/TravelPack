@@ -10,46 +10,74 @@ class TripRepository(
     val allTrips: Flow<List<TripEntity>> =
         tripDao.getAllTrips()
 
-    suspend fun getTripById(tripId: Long): TripEntity? {
+    suspend fun getTripById(
+        tripId: Long
+    ): TripEntity? {
         return tripDao.getTripById(tripId)
     }
 
-    suspend fun insertTrip(trip: TripEntity): Long {
+    suspend fun insertTrip(
+        trip: TripEntity
+    ): Long {
         return tripDao.insertTrip(trip)
     }
 
-    suspend fun updateTrip(trip: TripEntity) {
+    suspend fun updateTrip(
+        trip: TripEntity
+    ) {
         tripDao.updateTrip(trip)
     }
 
-    suspend fun deleteTrip(trip: TripEntity) {
+    suspend fun deleteTrip(
+        trip: TripEntity
+    ) {
         tripDao.deleteTrip(trip)
     }
 
     fun getAttachmentsForTrip(
         tripId: Long
     ): Flow<List<TripAttachmentEntity>> {
-        return tripAttachmentDao.getAttachmentsForTrip(tripId)
+        return tripAttachmentDao
+            .getAttachmentsForTrip(tripId)
     }
 
     suspend fun insertAttachments(
         attachments: List<TripAttachmentEntity>
     ) {
         if (attachments.isNotEmpty()) {
-            tripAttachmentDao.insertAttachments(attachments)
+            tripAttachmentDao.insertAttachments(
+                attachments
+            )
         }
+    }
+
+    suspend fun deleteAttachment(
+        attachment: TripAttachmentEntity
+    ) {
+        tripAttachmentDao.deleteAttachment(
+            attachment
+        )
+    }
+
+    suspend fun deleteAttachmentsForTrip(
+        tripId: Long
+    ) {
+        tripAttachmentDao
+            .deleteAttachmentsForTrip(tripId)
     }
 
     fun getChecklistForTrip(
         tripId: Long
     ): Flow<List<ChecklistItemEntity>> {
-        return checklistItemDao.getChecklistForTrip(tripId)
+        return checklistItemDao
+            .getChecklistForTrip(tripId)
     }
 
     suspend fun insertChecklistItem(
         item: ChecklistItemEntity
     ): Long {
-        return checklistItemDao.insertChecklistItem(item)
+        return checklistItemDao
+            .insertChecklistItem(item)
     }
 
     suspend fun updateChecklistItem(

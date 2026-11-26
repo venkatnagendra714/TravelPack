@@ -5,4 +5,8 @@
         name="trip_photos"
         path="trip_photos/" />
 
+    <files-path
+        name="trip_documents"
+        path="trip_documents/" />
+
 </paths>

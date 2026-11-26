@@ -14,6 +14,7 @@ import uk.ac.tees.mad.s3623092.data.TravelPackDatabase
 import uk.ac.tees.mad.s3623092.data.TripAttachmentEntity
 import uk.ac.tees.mad.s3623092.data.TripEntity
 import uk.ac.tees.mad.s3623092.data.TripRepository
+import uk.ac.tees.mad.s3623092.notifications.TripNotificationScheduler
 
 class TripViewModel(
     application: Application
@@ -25,20 +26,38 @@ class TripViewModel(
     private val repository =
         TripRepository(
             tripDao = database.tripDao(),
-            tripAttachmentDao = database.tripAttachmentDao(),
-            checklistItemDao = database.checklistItemDao()
+            tripAttachmentDao =
+                database.tripAttachmentDao(),
+            checklistItemDao =
+                database.checklistItemDao()
         )
+
+    private val appContext =
+        application.applicationContext
 
     val trips: StateFlow<List<TripEntity>> =
         repository.allTrips.stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
+            started = SharingStarted.WhileSubscribed(
+                5_000
+            ),
             initialValue = emptyList()
         )
 
-    fun saveTrip(trip: TripEntity) {
+    fun saveTrip(
+        trip: TripEntity
+    ) {
         viewModelScope.launch {
-            repository.insertTrip(trip)
+            val tripId =
+                repository.insertTrip(trip)
+
+            TripNotificationScheduler
+                .scheduleTripNotifications(
+                    context = appContext,
+                    tripId = tripId,
+                    tripName = trip.name,
+                    startDate = trip.startDate
+                )
         }
     }
 
@@ -47,13 +66,24 @@ class TripViewModel(
         attachments: List<TripAttachmentEntity>
     ) {
         viewModelScope.launch {
-            val tripId = repository.insertTrip(trip)
+            val tripId =
+                repository.insertTrip(trip)
 
             repository.insertAttachments(
-                attachments.map { attachment ->
-                    attachment.copy(tripId = tripId)
+                attachments.map {
+                    it.copy(
+                        tripId = tripId
+                    )
                 }
             )
+
+            TripNotificationScheduler
+                .scheduleTripNotifications(
+                    context = appContext,
+                    tripId = tripId,
+                    tripName = trip.name,
+                    startDate = trip.startDate
+                )
         }
     }
 
@@ -63,21 +93,36 @@ class TripViewModel(
         checklistItems: List<ChecklistItemEntity>
     ) {
         viewModelScope.launch {
-            val tripId = repository.insertTrip(trip)
+            val tripId =
+                repository.insertTrip(trip)
 
             repository.insertAttachments(
-                attachments.map { attachment ->
-                    attachment.copy(tripId = tripId)
+                attachments.map {
+                    it.copy(
+                        tripId = tripId
+                    )
                 }
             )
 
             checklistItems
-                .filter { it.title.isNotBlank() }
+                .filter {
+                    it.title.trim().isNotBlank()
+                }
                 .forEach { item ->
                     repository.insertChecklistItem(
-                        item.copy(tripId = tripId)
+                        item.copy(
+                            tripId = tripId
+                        )
                     )
                 }
+
+            TripNotificationScheduler
+                .scheduleTripNotifications(
+                    context = appContext,
+                    tripId = tripId,
+                    tripName = trip.name,
+                    startDate = trip.startDate
+                )
         }
     }
 
@@ -87,7 +132,9 @@ class TripViewModel(
         return if (tripId == 0L) {
             emptyFlow()
         } else {
-            repository.getAttachmentsForTrip(tripId)
+            repository.getAttachmentsForTrip(
+                tripId
+            )
         }
     }
 
@@ -95,11 +142,27 @@ class TripViewModel(
         tripId: Long,
         attachments: List<TripAttachmentEntity>
     ) {
+        if (tripId == 0L) {
+            return
+        }
+
         viewModelScope.launch {
             repository.insertAttachments(
-                attachments.map { attachment ->
-                    attachment.copy(tripId = tripId)
+                attachments.map {
+                    it.copy(
+                        tripId = tripId
+                    )
                 }
+            )
+        }
+    }
+
+    fun deleteAttachment(
+        attachment: TripAttachmentEntity
+    ) {
+        viewModelScope.launch {
+            repository.deleteAttachment(
+                attachment
             )
         }
     }
@@ -110,7 +173,9 @@ class TripViewModel(
         return if (tripId == 0L) {
             emptyFlow()
         } else {
-            repository.getChecklistForTrip(tripId)
+            repository.getChecklistForTrip(
+                tripId
+            )
         }
     }
 
@@ -118,9 +183,13 @@ class TripViewModel(
         tripId: Long,
         title: String
     ) {
-        val cleanTitle = title.trim()
+        val cleanTitle =
+            title.trim()
 
-        if (tripId == 0L || cleanTitle.isBlank()) {
+        if (
+            tripId == 0L ||
+            cleanTitle.isBlank()
+        ) {
             return
         }
 
@@ -128,7 +197,8 @@ class TripViewModel(
             repository.insertChecklistItem(
                 ChecklistItemEntity(
                     tripId = tripId,
-                    title = cleanTitle
+                    title = cleanTitle,
+                    isCompleted = false
                 )
             )
         }
@@ -138,7 +208,9 @@ class TripViewModel(
         item: ChecklistItemEntity
     ) {
         viewModelScope.launch {
-            repository.updateChecklistItem(item)
+            repository.updateChecklistItem(
+                item
+            )
         }
     }
 
@@ -146,19 +218,43 @@ class TripViewModel(
         item: ChecklistItemEntity
     ) {
         viewModelScope.launch {
-            repository.deleteChecklistItem(item)
+            repository.deleteChecklistItem(
+                item
+            )
         }
     }
 
-    fun updateTrip(trip: TripEntity) {
+    fun updateTrip(
+        trip: TripEntity
+    ) {
         viewModelScope.launch {
-            repository.updateTrip(trip)
+            repository.updateTrip(
+                trip
+            )
+
+            TripNotificationScheduler
+                .scheduleTripNotifications(
+                    context = appContext,
+                    tripId = trip.id,
+                    tripName = trip.name,
+                    startDate = trip.startDate
+                )
         }
     }
 
-    fun deleteTrip(trip: TripEntity) {
+    fun deleteTrip(
+        trip: TripEntity
+    ) {
         viewModelScope.launch {
-            repository.deleteTrip(trip)
+            TripNotificationScheduler
+                .cancelTripNotifications(
+                    context = appContext,
+                    tripId = trip.id
+                )
+
+            repository.deleteTrip(
+                trip
+            )
         }
     }
 }
